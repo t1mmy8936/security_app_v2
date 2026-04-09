@@ -1,0 +1,4 @@
+﻿services:
+  watchtower:
+    volumes:
+      - "C:/:/host-c:ro"

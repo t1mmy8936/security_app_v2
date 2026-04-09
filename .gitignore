@@ -1,0 +1,11 @@
+# Watchtower — Rust Edition
+
+.env
+*.db
+target/
+reports/
+__pycache__/
+.venv/
+instance/
+node_modules/
+.groupcode/
