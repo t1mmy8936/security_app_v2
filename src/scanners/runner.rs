@@ -254,6 +254,25 @@ pub async fn run_scan(pool: DbPool, scan_job_id: i64) {
         &format!("🏁 Scan complete — {} total finding(s) ({}C/{}H/{}M/{}L/{}I)",
             total_findings, sc.get("critical").unwrap_or(&0), sc.get("high").unwrap_or(&0),
             sc.get("medium").unwrap_or(&0), sc.get("low").unwrap_or(&0), sc.get("info").unwrap_or(&0))).await;
+
+    // Auto-generate HTML and PDF reports
+    db::insert_scan_log(&pool, scan_job_id, "info", None, "📄 Generating reports...").await;
+    match crate::services::report::generate_html_report(&pool, scan_job_id).await {
+        Ok(_) => {
+            db::insert_scan_log(&pool, scan_job_id, "info", None, "✅ HTML report generated").await;
+        }
+        Err(e) => {
+            db::insert_scan_log(&pool, scan_job_id, "warn", None, &format!("⚠️ HTML report failed: {}", e)).await;
+        }
+    }
+    match crate::services::report::generate_pdf_report(&pool, scan_job_id).await {
+        Ok(_) => {
+            db::insert_scan_log(&pool, scan_job_id, "info", None, "✅ PDF report generated").await;
+        }
+        Err(e) => {
+            db::insert_scan_log(&pool, scan_job_id, "warn", None, &format!("⚠️ PDF report failed: {}", e)).await;
+        }
+    }
 }
 
 async fn save_findings(pool: &DbPool, scan_job_id: i64, all_findings: &[ToolFinding], tools: &[String], now: &str) {

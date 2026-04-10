@@ -16,6 +16,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/scans/start", web::post().to(start_scan))
             .route("/scans/{id}/stop", web::post().to(stop_scan))
             .route("/scans/{id}/resume", web::post().to(resume_scan))
+            .route("/scans/{id}/cancel", web::post().to(cancel_scan))
             .route("/tools", web::get().to(list_tools))
             .route("/presets", web::get().to(list_presets))
             .route("/settings", web::get().to(get_settings))
@@ -25,6 +26,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/settings/sonarqube-setup", web::post().to(sonarqube_auto_setup))
             .route("/sonarqube/profiles", web::get().to(sonarqube_quality_profiles))
             .route("/reports/{id}/generate", web::post().to(generate_report))
+            .route("/reports/{id}/generate-pdf", web::post().to(generate_pdf_report))
+            .route("/reports/{id}/download-pdf", web::get().to(download_pdf_report))
             .route("/reports/{id}/email", web::post().to(email_report))
             .route("/reports", web::get().to(list_reports))
             .route("/browse-folders", web::post().to(browse_folders))
@@ -380,6 +383,52 @@ async fn resume_scan(pool: web::Data<DbPool>, path: web::Path<i64>) -> HttpRespo
     }
 }
 
+async fn cancel_scan(pool: web::Data<DbPool>, path: web::Path<i64>) -> HttpResponse {
+    let id = path.into_inner();
+
+    // Check scan exists
+    let status: Option<(String,)> = sqlx::query_as("SELECT status FROM scan_jobs WHERE id = ?")
+        .bind(id)
+        .fetch_optional(pool.get_ref())
+        .await
+        .unwrap_or(None);
+
+    match status {
+        Some((s,)) => {
+            // If running, signal stop first
+            if s == "running" {
+                runner::SCAN_CANCEL.write().await.insert(id, true);
+                // Give the runner a moment to notice
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            }
+
+            // Delete all related data
+            sqlx::query("DELETE FROM scan_logs WHERE scan_job_id = ?").bind(id).execute(pool.get_ref()).await.ok();
+            sqlx::query("DELETE FROM findings WHERE scan_job_id = ?").bind(id).execute(pool.get_ref()).await.ok();
+            sqlx::query("DELETE FROM reports WHERE scan_job_id = ?").bind(id).execute(pool.get_ref()).await.ok();
+            sqlx::query("DELETE FROM scan_jobs WHERE id = ?").bind(id).execute(pool.get_ref()).await.ok();
+
+            // Clean up any report files
+            let _ = tokio::fs::remove_file(format!("/app/reports/scan_{}_report.html", id)).await;
+            let _ = tokio::fs::remove_file(format!("/app/reports/scan_{}_report.pdf", id)).await;
+
+            // Clean up cancellation token
+            runner::SCAN_CANCEL.write().await.remove(&id);
+
+            HttpResponse::Ok().json(ApiResponse {
+                success: true,
+                message: Some(format!("Scan {} cancelled and removed", id)),
+                data: Some(serde_json::json!({ "scan_id": id })),
+            })
+        }
+        None => HttpResponse::NotFound().json(ApiResponse::<()> {
+            success: false,
+            message: Some("Scan not found".into()),
+            data: None,
+        }),
+    }
+}
+
 async fn list_tools() -> HttpResponse {
     let tools: Vec<ToolInfo> = runner::TOOLS.iter().map(|t| ToolInfo {
         name: t.name.into(),
@@ -584,6 +633,42 @@ async fn generate_report(pool: web::Data<DbPool>, path: web::Path<i64>) -> HttpR
     match crate::services::report::generate_html_report(pool.get_ref(), id).await {
         Ok(path) => HttpResponse::Ok().json(ApiResponse { success: true, message: Some("Report generated".into()), data: Some(path) }),
         Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()> { success: false, message: Some(e), data: None }),
+    }
+}
+
+async fn generate_pdf_report(pool: web::Data<DbPool>, path: web::Path<i64>) -> HttpResponse {
+    let id = path.into_inner();
+    match crate::services::report::generate_pdf_report(pool.get_ref(), id).await {
+        Ok(path) => HttpResponse::Ok().json(ApiResponse { success: true, message: Some("PDF report generated".into()), data: Some(path) }),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()> { success: false, message: Some(e), data: None }),
+    }
+}
+
+async fn download_pdf_report(pool: web::Data<DbPool>, path: web::Path<i64>) -> HttpResponse {
+    let id = path.into_inner();
+    let pdf_path = format!("/app/reports/scan_{}_report.pdf", id);
+
+    // Auto-generate if PDF doesn't exist yet
+    if tokio::fs::try_exists(&pdf_path).await.unwrap_or(false) == false {
+        if let Err(e) = crate::services::report::generate_pdf_report(pool.get_ref(), id).await {
+            return HttpResponse::InternalServerError().json(ApiResponse::<()> {
+                success: false,
+                message: Some(format!("Failed to generate PDF: {}", e)),
+                data: None,
+            });
+        }
+    }
+
+    match tokio::fs::read(&pdf_path).await {
+        Ok(bytes) => HttpResponse::Ok()
+            .content_type("application/pdf")
+            .insert_header(("Content-Disposition", format!("attachment; filename=\"watchtower_scan_{}_report.pdf\"", id)))
+            .body(bytes),
+        Err(_) => HttpResponse::InternalServerError().json(ApiResponse::<()> {
+            success: false,
+            message: Some("PDF generation succeeded but file not found".into()),
+            data: None,
+        }),
     }
 }
 

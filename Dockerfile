@@ -24,7 +24,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     nmap nikto sqlmap python3-pip python3-venv \
     curl wget git ca-certificates unzip \
     default-jre-headless \
+    xfonts-75dpi xfonts-base fontconfig libxrender1 libxext6 \
     && rm -rf /var/lib/apt/lists/*
+
+# wkhtmltopdf (not in Kali repos — install from upstream .deb)
+RUN curl -sSLo /tmp/wkhtmltopdf.deb https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-3/wkhtmltox_0.12.6.1-3.bookworm_amd64.deb \
+    && dpkg -i /tmp/wkhtmltopdf.deb || apt-get install -f -y \
+    && rm /tmp/wkhtmltopdf.deb
 
 # Bandit
 RUN pip3 install --break-system-packages bandit
