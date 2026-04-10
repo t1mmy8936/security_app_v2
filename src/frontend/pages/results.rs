@@ -101,6 +101,15 @@ pub fn ResultsPage() -> impl IntoView {
                                     }>"▶ Resume"</button>
                                 }
                             })}
+                            {(s.status == "completed").then(|| {
+                                let sid = scan_id();
+                                view! {
+                                    <a class="btn-scan-action btn-pdf"
+                                        href=format!("/api/reports/{}/download-pdf", sid)
+                                        target="_blank"
+                                    >"📥 Download PDF"</a>
+                                }
+                            })}
                         </div>
                     </div>
                     {(s.status == "running").then(|| view! {

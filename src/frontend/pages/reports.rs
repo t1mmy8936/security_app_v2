@@ -27,13 +27,17 @@ pub fn ReportsPage() -> impl IntoView {
                                             <th>"Format"</th>
                                             <th>"Created"</th>
                                             <th>"Emailed"</th>
+                                            <th>"Actions"</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         <For
                                             each=move || report_list.clone()
                                             key=|r| r.id
-                                            children=|report| view! {
+                                            children=|report| {
+                                                let scan_id = report.scan_job_id;
+                                                let fmt = report.format.clone();
+                                                view! {
                                                 <tr>
                                                     <td>{report.id}</td>
                                                     <td>
@@ -41,11 +45,16 @@ pub fn ReportsPage() -> impl IntoView {
                                                             {format!("Scan #{}", report.scan_job_id)}
                                                         </a>
                                                     </td>
-                                                    <td><span class="badge">{report.format.to_uppercase()}</span></td>
+                                                    <td><span class=format!("badge badge-format-{}", report.format)>{report.format.to_uppercase()}</span></td>
                                                     <td>{report.created_at.clone()}</td>
                                                     <td>{if report.emailed { "✅" } else { "—" }}</td>
+                                                    <td>
+                                                        {(fmt == "pdf").then(|| view! {
+                                                            <a class="btn-sm btn-pdf" href=format!("/api/reports/{}/download-pdf", scan_id) target="_blank">"📥 Download"</a>
+                                                        })}
+                                                    </td>
                                                 </tr>
-                                            }
+                                            }}
                                         />
                                     </tbody>
                                 </table>

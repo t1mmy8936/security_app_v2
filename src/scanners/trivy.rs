@@ -13,13 +13,39 @@ pub async fn scan(pool: &DbPool, scan_job_id: i64, target: &str) -> Vec<ToolFind
     };
 
     let output = Command::new("trivy")
-        .args([scan_type, "--format", "json", "--quiet", target])
+        .args([
+            scan_type,
+            "--format", "json",
+            "--timeout", "30m",
+            "--scanners", "vuln,secret,misconfig",
+            "--skip-dirs", ".git",
+            target,
+        ])
         .output()
         .await;
 
     match output {
         Ok(out) => {
             let stdout = String::from_utf8_lossy(&out.stdout);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+
+            // Log any errors or warnings from trivy
+            let err_lines: String = stderr.lines()
+                .filter(|l| l.contains("ERROR") || l.contains("WARN") || l.contains("fatal"))
+                .take(5)
+                .collect::<Vec<_>>()
+                .join("\n");
+            if !err_lines.is_empty() {
+                db::insert_scan_log(pool, scan_job_id, "warn", Some("trivy"),
+                    &format!("Trivy stderr: {}", &err_lines[..err_lines.len().min(500)])).await;
+            }
+
+            if stdout.trim().is_empty() {
+                db::insert_scan_log(pool, scan_job_id, "warn", Some("trivy"),
+                    "Trivy produced no output").await;
+                return vec![];
+            }
+
             parse_trivy_json(&stdout)
         }
         Err(e) => {
@@ -40,6 +66,8 @@ fn parse_trivy_json(output: &str) -> Vec<ToolFinding> {
         if let Some(results) = results {
             for result in results {
                 let target_name = result["Target"].as_str().unwrap_or("");
+
+                // Vulnerabilities (CVEs in packages)
                 if let Some(vulns) = result["Vulnerabilities"].as_array() {
                     for vuln in vulns {
                         let sev = vuln["Severity"].as_str().unwrap_or("UNKNOWN");
@@ -74,6 +102,52 @@ fn parse_trivy_json(output: &str) -> Vec<ToolFinding> {
                             cvss_score: cvss,
                             recommendation: vuln["FixedVersion"].as_str()
                                 .map(|v| format!("Upgrade to version {}", v)),
+                        });
+                    }
+                }
+
+                // Misconfigurations (IaC / config issues)
+                if let Some(misconfigs) = result["Misconfigurations"].as_array() {
+                    for mc in misconfigs {
+                        let sev = mc["Severity"].as_str().unwrap_or("UNKNOWN");
+                        let severity = match sev {
+                            "CRITICAL" => "critical",
+                            "HIGH" => "high",
+                            "MEDIUM" => "medium",
+                            "LOW" => "low",
+                            _ => "info",
+                        };
+
+                        findings.push(ToolFinding {
+                            tool: "trivy".into(),
+                            severity: severity.into(),
+                            title: format!("{}: {}",
+                                mc["ID"].as_str().unwrap_or(""),
+                                mc["Title"].as_str().unwrap_or("Misconfiguration")),
+                            description: mc["Description"].as_str().map(|s| s.to_string()),
+                            file_path: Some(target_name.to_string()),
+                            line_number: mc["CauseMetadata"]["StartLine"].as_i64(),
+                            cwe_id: None,
+                            cvss_score: None,
+                            recommendation: mc["Resolution"].as_str().map(|s| s.to_string()),
+                        });
+                    }
+                }
+
+                // Secrets
+                if let Some(secrets) = result["Secrets"].as_array() {
+                    for secret in secrets {
+                        findings.push(ToolFinding {
+                            tool: "trivy".into(),
+                            severity: "high".into(),
+                            title: format!("Secret: {}",
+                                secret["Title"].as_str().unwrap_or("Exposed Secret")),
+                            description: secret["Match"].as_str().map(|_| "Potential secret or credential detected".to_string()),
+                            file_path: Some(target_name.to_string()),
+                            line_number: secret["StartLine"].as_i64(),
+                            cwe_id: Some("CWE-312".to_string()),
+                            cvss_score: None,
+                            recommendation: Some("Remove secret from source code and rotate credentials".to_string()),
                         });
                     }
                 }

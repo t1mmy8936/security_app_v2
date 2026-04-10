@@ -139,6 +139,19 @@ pub fn ScanStatusBar() -> impl IntoView {
                                                         }>"▶"</button>
                                                 }
                                             })}
+                                            {(scan.status == "running" || scan.status == "stopped").then(|| {
+                                                let sid = scan.id;
+                                                view! {
+                                                    <button class="ssb-action-btn ssb-cancel-btn" title="Cancel and remove"
+                                                        on:click=move |e| {
+                                                            e.stop_propagation();
+                                                            #[cfg(feature = "hydrate")]
+                                                            wasm_bindgen_futures::spawn_local(async move {
+                                                                let _ = post_scan_action(sid, "cancel").await;
+                                                            });
+                                                        }>"🗑"</button>
+                                                }
+                                            })}
                                         </div>
                                         <div class="ssb-progress">
                                             <div class="ssb-progress-bar" style=format!("width:{}%", progress)></div>
