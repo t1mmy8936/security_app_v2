@@ -24,8 +24,8 @@ async fn main() -> std::io::Result<()> {
     ║                                                          ║
     ║   "I find your lack of security disturbing."             ║
     ║                                                          ║
-    ║   🌐 Server: http://0.0.0.0:67                           ║
-    ║   📊 Dashboard: http://localhost:67                       ║
+    ║   🌐 Server: http://0.0.0.0:66                           ║
+    ║   📊 Dashboard: http://localhost:66                       ║
     ║                                                          ║
     ╚══════════════════════════════════════════════════════════╝
     "#);

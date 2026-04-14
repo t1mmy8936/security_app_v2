@@ -250,10 +250,10 @@ async fn fetch_issues(pool: &DbPool, scan_job_id: i64, sonar_url: &str, token: &
                         });
 
                         let severity = match sev.to_uppercase().as_str() {
-                            "BLOCKER" | "CRITICAL" | "HIGH" => "high",
-                            "MAJOR" | "MEDIUM" => "medium",
-                            "MINOR" | "LOW" => "low",
-                            "INFO" => "info",
+                            "BLOCKER" | "CRITICAL" => "critical",
+                            "HIGH" | "MAJOR" => "high",
+                            "MEDIUM" | "MINOR" => "medium",
+                            "LOW" | "INFO" => "low",
                             _ => "info",
                         };
 

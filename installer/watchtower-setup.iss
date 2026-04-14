@@ -4,7 +4,7 @@
 #define MyAppName "Watchtower"
 #define MyAppVersion "2.0"
 #define MyAppPublisher "Watchtower Security"
-#define MyAppURL "http://localhost:67"
+#define MyAppURL "http://localhost:66"
 
 [Setup]
 AppId={{B7F4E2A1-9C3D-4E5F-8A6B-1D2E3F4A5B6C}
@@ -54,7 +54,7 @@ Name: "{app}\reports"
 
 [Icons]
 Name: "{group}\Watchtower"; Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\execute-order-66.ps1"""; WorkingDir: "{app}"; Comment: "Execute Order 66"
-Name: "{group}\Watchtower Dashboard"; Filename: "http://localhost:67"; Comment: "Open Watchtower Dashboard"
+Name: "{group}\Watchtower Dashboard"; Filename: "http://localhost:66"; Comment: "Open Watchtower Dashboard"
 Name: "{group}\Uninstall Watchtower"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\Watchtower"; Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\execute-order-66.ps1"""; WorkingDir: "{app}"; Comment: "Execute Order 66"
 

@@ -24,6 +24,9 @@ pub fn SettingsPage() -> impl IntoView {
     let (qp_list, set_qp_list) = create_signal(Vec::<QualityProfile>::new());
     let (qp_loading, set_qp_loading) = create_signal(false);
     let (qp_error, set_qp_error) = create_signal(Option::<String>::None);
+    let (openvas_url, set_openvas_url) = create_signal(String::new());
+    let (openvas_username, set_openvas_username) = create_signal(String::new());
+    let (openvas_password, set_openvas_password) = create_signal(String::new());
 
     // Populate signals when settings load
     create_effect(move |_| {
@@ -42,6 +45,9 @@ pub fn SettingsPage() -> impl IntoView {
             set_sonar_project.set(s.sonarqube_project_key);
             set_sonar_exclusions.set(s.sonarqube_exclusions);
             set_sonar_qp.set(s.sonarqube_quality_profile);
+            set_openvas_url.set(s.openvas_url);
+            set_openvas_username.set(s.openvas_username);
+            set_openvas_password.set(s.openvas_password);
         }
     });
 
@@ -61,6 +67,9 @@ pub fn SettingsPage() -> impl IntoView {
             SettingPair { key: "sonarqube_project_key".into(), value: sonar_project.get() },
             SettingPair { key: "sonarqube_exclusions".into(), value: sonar_exclusions.get() },
             SettingPair { key: "sonarqube_quality_profile".into(), value: sonar_qp.get() },
+            SettingPair { key: "openvas_url".into(), value: openvas_url.get() },
+            SettingPair { key: "openvas_username".into(), value: openvas_username.get() },
+            SettingPair { key: "openvas_password".into(), value: openvas_password.get() },
         ];
         async move {
             match do_save_settings(pairs).await {
@@ -79,6 +88,13 @@ pub fn SettingsPage() -> impl IntoView {
 
     let test_sonar_action = create_action(move |_: &()| async move {
         match do_test_sonarqube().await {
+            Ok(msg) => set_saved_msg.set(Some(msg)),
+            Err(e) => set_saved_msg.set(Some(format!("Error: {}", e))),
+        }
+    });
+
+    let test_openvas_action = create_action(move |_: &()| async move {
+        match do_test_openvas().await {
             Ok(msg) => set_saved_msg.set(Some(msg)),
             Err(e) => set_saved_msg.set(Some(format!("Error: {}", e))),
         }
@@ -275,6 +291,30 @@ pub fn SettingsPage() -> impl IntoView {
 
         <button class="btn btn-primary btn-lg" on:click=move |_| save_action.dispatch(())>"💾 Save All Settings"</button>
 
+        // OpenVAS
+        <div class="card mb-3">
+            <h3>"OpenVAS / Greenbone"</h3>
+            <p class="form-hint">"Network vulnerability scanner. Requires the Greenbone Community Edition stack (see docker-compose.override.yml). First startup takes 10-20 minutes for feed downloads."</p>
+            <div class="form-group">
+                <label>"gsad URL"</label>
+                <input type="text" class="form-control" prop:value=move || openvas_url.get()
+                    on:input=move |ev| set_openvas_url.set(event_target_value(&ev))
+                    placeholder="http://gsad:80"/>
+            </div>
+            <div class="form-group">
+                <label>"Username"</label>
+                <input type="text" class="form-control" prop:value=move || openvas_username.get()
+                    on:input=move |ev| set_openvas_username.set(event_target_value(&ev))
+                    placeholder="admin"/>
+            </div>
+            <div class="form-group">
+                <label>"Password"</label>
+                <input type="password" class="form-control" prop:value=move || openvas_password.get()
+                    on:input=move |ev| set_openvas_password.set(event_target_value(&ev))/>
+            </div>
+            <button class="btn btn-secondary" on:click=move |_| test_openvas_action.dispatch(())>"Test Connection"</button>
+        </div>
+
         </Suspense>
     }
 }
@@ -324,6 +364,19 @@ async fn do_test_sonarqube() -> Result<String, String> {
     #[cfg(feature = "hydrate")]
     {
         let resp = gloo_net::http::Request::post("/api/settings/test-sonarqube")
+            .send().await.map_err(|e| e.to_string())?;
+        let api: ApiResponse<()> = resp.json().await.map_err(|e| e.to_string())?;
+        if api.success { Ok(api.message.unwrap_or("OK".into())) }
+        else { Err(api.message.unwrap_or("Failed".into())) }
+    }
+    #[cfg(not(feature = "hydrate"))]
+    { Err("SSR".into()) }
+}
+
+async fn do_test_openvas() -> Result<String, String> {
+    #[cfg(feature = "hydrate")]
+    {
+        let resp = gloo_net::http::Request::post("/api/settings/test-openvas")
             .send().await.map_err(|e| e.to_string())?;
         let api: ApiResponse<()> = resp.json().await.map_err(|e| e.to_string())?;
         if api.success { Ok(api.message.unwrap_or("OK".into())) }

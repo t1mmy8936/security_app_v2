@@ -1,5 +1,6 @@
 use leptos::*;
 use crate::models::*;
+use crate::frontend::app::{RESTRICTED_TOOLS, RESTRICTED_PRESETS};
 
 #[component]
 pub fn ScanPage() -> impl IntoView {
@@ -10,6 +11,9 @@ pub fn ScanPage() -> impl IntoView {
     let (is_scanning, set_is_scanning) = create_signal(false);
     let (browse_path, set_browse_path) = create_signal(None::<String>);
     let (folder_search, set_folder_search) = create_signal(String::new());
+
+    // Read advanced mode from context — hides restricted tools when false
+    let advanced_mode = use_context::<ReadSignal<bool>>().unwrap_or_else(|| create_signal(false).0);
 
     let drives = create_resource(|| (), |_| async { fetch_drives().await });
     let presets = create_resource(|| (), |_| async { fetch_presets().await });
@@ -241,11 +245,22 @@ pub fn ScanPage() -> impl IntoView {
                         Ok(preset_list) => view! {
                             <div class="preset-grid">
                                 <For
-                                    each=move || preset_list.clone()
+                                    each=move || {
+                                        let adv = advanced_mode.get();
+                                        preset_list.iter()
+                                            .filter(|p| adv || !RESTRICTED_PRESETS.contains(&p.name.as_str()))
+                                            .cloned()
+                                            .collect::<Vec<_>>()
+                                    }
                                     key=|p| p.name.clone()
                                     children=move |preset| {
                                         let name = preset.name.clone();
                                         let name2 = preset.name.clone();
+                                        let adv = advanced_mode.get();
+                                        let visible_tools: Vec<_> = preset.tools.iter()
+                                            .filter(|t| adv || !RESTRICTED_TOOLS.contains(&t.as_str()))
+                                            .cloned()
+                                            .collect();
                                         view! {
                                             <div class=move || {
                                                 if scan_type.get() == name { "preset-card active" } else { "preset-card" }
@@ -254,7 +269,7 @@ pub fn ScanPage() -> impl IntoView {
                                                 <h4>{preset.display_name.clone()}</h4>
                                                 <p>{preset.description.clone()}</p>
                                                 <div class="preset-tools">
-                                                    {preset.tools.iter().map(|t| view! {
+                                                    {visible_tools.iter().map(|t| view! {
                                                         <span class="tool-tag">{t.clone()}</span>
                                                     }).collect_view()}
                                                 </div>
@@ -276,13 +291,19 @@ pub fn ScanPage() -> impl IntoView {
                         Ok(tool_list) => view! {
                             <div class="tools-checkbox-grid">
                                 <For
-                                    each=move || tool_list.clone()
+                                    each=move || {
+                                        let adv = advanced_mode.get();
+                                        tool_list.clone().into_iter()
+                                            .filter(move |t| adv || !RESTRICTED_TOOLS.contains(&t.name.as_str()))
+                                            .collect::<Vec<_>>()
+                                    }
                                     key=|t| t.name.clone()
                                     children=move |tool| {
                                         let name = tool.name.clone();
                                         let name2 = tool.name.clone();
+                                        let is_restricted = RESTRICTED_TOOLS.contains(&tool.name.as_str());
                                         view! {
-                                            <label class="checkbox-label">
+                                            <label class=move || if is_restricted { "checkbox-label restricted-tool" } else { "checkbox-label" }>
                                                 <input type="checkbox"
                                                     prop:checked=move || selected_tools.get().contains(&name)
                                                     on:change=move |ev| {

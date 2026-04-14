@@ -235,6 +235,9 @@ pub struct AllSettings {
     pub sonarqube_project_key: String,
     pub sonarqube_exclusions: String,
     pub sonarqube_quality_profile: String,
+    pub openvas_url: String,
+    pub openvas_username: String,
+    pub openvas_password: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

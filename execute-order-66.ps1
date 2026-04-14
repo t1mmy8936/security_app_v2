@@ -87,7 +87,7 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "  ╔══════════════════════════════════════════════════════════╗" -ForegroundColor Green
     Write-Host "  ║  ✅ Watchtower is online!                                ║" -ForegroundColor Green
     Write-Host "  ║                                                          ║" -ForegroundColor Green
-    Write-Host "  ║  🌐 Dashboard:  http://localhost:67                      ║" -ForegroundColor Cyan
+    Write-Host "  ║  🌐 Dashboard:  http://localhost:66                      ║" -ForegroundColor Cyan
     Write-Host "  ║  🔍 ZAP:        http://localhost:8081                    ║" -ForegroundColor Cyan
     Write-Host "  ║  📊 SonarQube:  http://localhost:9091                    ║" -ForegroundColor Cyan
     Write-Host "  ║                                                          ║" -ForegroundColor Green

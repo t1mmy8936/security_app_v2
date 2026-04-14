@@ -27,6 +27,7 @@ pub static TOOLS: &[ToolDef] = &[
     ToolDef { name: "trivy", display_name: "Trivy", description: "Vulnerability scanner for containers/filesystems", category: "SCA", web_only: false },
     ToolDef { name: "sonarqube", display_name: "SonarQube", description: "Code quality and security analysis", category: "SAST", web_only: false },
     ToolDef { name: "dependency_check", display_name: "Dependency-Check", description: "OWASP dependency vulnerability scanner", category: "SCA", web_only: false },
+    ToolDef { name: "openvas", display_name: "OpenVAS", description: "Network vulnerability scanner (Greenbone Community Edition)", category: "Network", web_only: true },
 ];
 
 pub struct ScanPresetDef {
@@ -37,11 +38,11 @@ pub struct ScanPresetDef {
 }
 
 pub static PRESETS: &[ScanPresetDef] = &[
-    ScanPresetDef { name: "web", display_name: "Web Application Scan", description: "Full web application security assessment", tools: &["zap", "nikto", "sqlmap", "nmap"] },
+    ScanPresetDef { name: "web", display_name: "Web Application Scan", description: "Full web application security assessment", tools: &["zap", "nikto", "sqlmap", "nmap", "openvas"] },
     ScanPresetDef { name: "sast", display_name: "Static Analysis", description: "Source code security analysis", tools: &["bandit", "sonarqube"] },
     ScanPresetDef { name: "network", display_name: "Network Scan", description: "Network reconnaissance and vulnerability detection", tools: &["nmap"] },
     ScanPresetDef { name: "dependency", display_name: "Dependency Scan", description: "Check dependencies for known vulnerabilities", tools: &["trivy", "dependency_check"] },
-    ScanPresetDef { name: "full", display_name: "Full Security Audit", description: "Comprehensive scan with all available tools", tools: &["zap", "nmap", "nikto", "sqlmap", "bandit", "trivy", "sonarqube", "dependency_check"] },
+    ScanPresetDef { name: "full", display_name: "Full Security Audit", description: "Comprehensive scan with all available tools", tools: &["zap", "nmap", "nikto", "sqlmap", "bandit", "trivy", "sonarqube", "dependency_check", "openvas"] },
 ];
 
 const CATCHPHRASES: &[&str] = &[
@@ -178,8 +179,8 @@ pub async fn run_scan(pool: DbPool, scan_job_id: i64) {
                     "🛑 Scan stopped by user").await;
 
                 let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
-                // Save any findings gathered so far
-                save_findings(&pool, scan_job_id, &all_findings, &tools, &now).await;
+                // Update summary counts — findings are already in DB from per-tool saves.
+                save_findings(&pool, scan_job_id, &tools, &now).await;
 
                 sqlx::query("UPDATE scan_jobs SET status = 'stopped', current_tool = NULL WHERE id = ?")
                     .bind(scan_job_id)
@@ -209,6 +210,28 @@ pub async fn run_scan(pool: DbPool, scan_job_id: i64) {
         let findings = run_tool(&pool, scan_job_id, tool_name, &target, &target_source).await;
 
         let count = findings.len();
+
+        // Persist this tool's findings to the DB immediately so they survive a restart.
+        for f in &findings {
+            sqlx::query(
+                "INSERT INTO findings (scan_job_id, tool, severity, title, description, file_path, line_number, cwe_id, cvss_score, recommendation)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            )
+            .bind(scan_job_id)
+            .bind(&f.tool)
+            .bind(&f.severity)
+            .bind(&f.title)
+            .bind(&f.description)
+            .bind(&f.file_path)
+            .bind(f.line_number)
+            .bind(&f.cwe_id)
+            .bind(f.cvss_score)
+            .bind(&f.recommendation)
+            .execute(&pool)
+            .await
+            .ok();
+        }
+
         all_findings.extend(findings);
         completed += 1;
 
@@ -223,9 +246,9 @@ pub async fn run_scan(pool: DbPool, scan_job_id: i64) {
             &format!("✅ {} complete — {} finding(s)", tool_name, count)).await;
     }
 
-    // Save findings
+    // Update summary counts from DB (findings were already persisted per-tool above).
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    save_findings(&pool, scan_job_id, &all_findings, &tools, &now).await;
+    save_findings(&pool, scan_job_id, &tools, &now).await;
 
     sqlx::query("UPDATE scan_jobs SET status = 'completed', current_tool = NULL WHERE id = ?")
         .bind(scan_job_id)
@@ -247,13 +270,23 @@ pub async fn run_scan(pool: DbPool, scan_job_id: i64) {
     // Clean up cancellation token
     SCAN_CANCEL.write().await.remove(&scan_job_id);
 
-    let total_findings = all_findings.len() as i64;
-    let mut sc = HashMap::new();
-    for f in &all_findings { *sc.entry(f.severity.to_lowercase()).or_insert(0i64) += 1; }
+    let (total_findings, crit, high, med, low, info): (i64, i64, i64, i64, i64, i64) =
+        sqlx::query_as(
+            "SELECT COUNT(*),
+                    SUM(CASE WHEN lower(severity)='critical' THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN lower(severity)='high' THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN lower(severity)='medium' THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN lower(severity)='low' THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN lower(severity)='info' THEN 1 ELSE 0 END)
+             FROM findings WHERE scan_job_id = ?"
+        )
+        .bind(scan_job_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or((0, 0, 0, 0, 0, 0));
     db::insert_scan_log(&pool, scan_job_id, "info", None,
         &format!("🏁 Scan complete — {} total finding(s) ({}C/{}H/{}M/{}L/{}I)",
-            total_findings, sc.get("critical").unwrap_or(&0), sc.get("high").unwrap_or(&0),
-            sc.get("medium").unwrap_or(&0), sc.get("low").unwrap_or(&0), sc.get("info").unwrap_or(&0))).await;
+            total_findings, crit, high, med, low, info)).await;
 
     // Auto-generate HTML and PDF reports
     db::insert_scan_log(&pool, scan_job_id, "info", None, "📄 Generating reports...").await;
@@ -275,35 +308,21 @@ pub async fn run_scan(pool: DbPool, scan_job_id: i64) {
     }
 }
 
-async fn save_findings(pool: &DbPool, scan_job_id: i64, all_findings: &[ToolFinding], tools: &[String], now: &str) {
-    let mut severity_counts = HashMap::new();
-    for f in all_findings {
-        *severity_counts.entry(f.severity.to_lowercase()).or_insert(0i64) += 1;
-        sqlx::query(
-            "INSERT OR IGNORE INTO findings (scan_job_id, tool, severity, title, description, file_path, line_number, cwe_id, cvss_score, recommendation)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-        )
-        .bind(scan_job_id)
-        .bind(&f.tool)
-        .bind(&f.severity)
-        .bind(&f.title)
-        .bind(&f.description)
-        .bind(&f.file_path)
-        .bind(f.line_number)
-        .bind(&f.cwe_id)
-        .bind(f.cvss_score)
-        .bind(&f.recommendation)
-        .execute(pool)
-        .await
-        .ok();
-    }
-
-    let crit = severity_counts.get("critical").copied().unwrap_or(0);
-    let high = severity_counts.get("high").copied().unwrap_or(0);
-    let med = severity_counts.get("medium").copied().unwrap_or(0);
-    let low = severity_counts.get("low").copied().unwrap_or(0);
-    let info = severity_counts.get("info").copied().unwrap_or(0);
-    let total_findings = all_findings.len() as i64;
+async fn save_findings(pool: &DbPool, scan_job_id: i64, tools: &[String], now: &str) {
+    // Findings are already persisted per-tool; just recompute the summary counts from DB.
+    let counts: (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT COUNT(*),
+                SUM(CASE WHEN lower(severity)='critical' THEN 1 ELSE 0 END),
+                SUM(CASE WHEN lower(severity)='high' THEN 1 ELSE 0 END),
+                SUM(CASE WHEN lower(severity)='medium' THEN 1 ELSE 0 END),
+                SUM(CASE WHEN lower(severity)='low' THEN 1 ELSE 0 END),
+                SUM(CASE WHEN lower(severity)='info' THEN 1 ELSE 0 END)
+         FROM findings WHERE scan_job_id = ?"
+    )
+    .bind(scan_job_id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or((0, 0, 0, 0, 0, 0));
 
     sqlx::query(
         "UPDATE scan_jobs SET completed_at = ?, total_findings = ?,
@@ -311,12 +330,12 @@ async fn save_findings(pool: &DbPool, scan_job_id: i64, all_findings: &[ToolFind
          tools_run = ? WHERE id = ?"
     )
     .bind(now)
-    .bind(total_findings)
-    .bind(crit)
-    .bind(high)
-    .bind(med)
-    .bind(low)
-    .bind(info)
+    .bind(counts.0)
+    .bind(counts.1)
+    .bind(counts.2)
+    .bind(counts.3)
+    .bind(counts.4)
+    .bind(counts.5)
     .bind(tools.join(", "))
     .bind(scan_job_id)
     .execute(pool)
@@ -342,6 +361,7 @@ async fn run_tool(pool: &DbPool, scan_job_id: i64, tool: &str, target: &str, tar
         "trivy" => super::trivy::scan(pool, scan_job_id, target).await,
         "sonarqube" => super::sonarqube::scan(pool, scan_job_id, target).await,
         "dependency_check" => super::dependency_check::scan(pool, scan_job_id, target).await,
+        "openvas" => super::openvas::scan(pool, scan_job_id, target).await,
         _ => {
             db::insert_scan_log(pool, scan_job_id, "warn", Some(tool),
                 &format!("Unknown tool: {}", tool)).await;

@@ -23,6 +23,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/settings", web::post().to(save_settings))
             .route("/settings/test-email", web::post().to(test_email))
             .route("/settings/test-sonarqube", web::post().to(test_sonarqube))
+            .route("/settings/test-openvas", web::post().to(test_openvas))
             .route("/settings/sonarqube-setup", web::post().to(sonarqube_auto_setup))
             .route("/sonarqube/profiles", web::get().to(sonarqube_quality_profiles))
             .route("/reports/{id}/generate", web::post().to(generate_report))
@@ -459,6 +460,7 @@ async fn get_settings(pool: web::Data<DbPool>) -> HttpResponse {
         "email_from", "email_to",
         "sonarqube_url", "sonarqube_token", "sonarqube_project_key", "sonarqube_exclusions",
         "sonarqube_quality_profile",
+        "openvas_url", "openvas_username", "openvas_password",
     ];
 
     let mut settings = AllSettings {
@@ -476,6 +478,9 @@ async fn get_settings(pool: web::Data<DbPool>) -> HttpResponse {
         sonarqube_project_key: String::new(),
         sonarqube_exclusions: String::new(),
         sonarqube_quality_profile: String::new(),
+        openvas_url: String::new(),
+        openvas_username: String::new(),
+        openvas_password: String::new(),
     };
 
     for key in &keys {
@@ -495,6 +500,9 @@ async fn get_settings(pool: web::Data<DbPool>) -> HttpResponse {
             "sonarqube_project_key" => settings.sonarqube_project_key = val,
             "sonarqube_exclusions" => settings.sonarqube_exclusions = val,
             "sonarqube_quality_profile" => settings.sonarqube_quality_profile = val,
+            "openvas_url" => settings.openvas_url = val,
+            "openvas_username" => settings.openvas_username = val,
+            "openvas_password" => settings.openvas_password = val,
             _ => {}
         }
     }
@@ -548,12 +556,53 @@ async fn test_sonarqube(pool: web::Data<DbPool>) -> HttpResponse {
     }
 }
 
+async fn test_openvas(pool: web::Data<DbPool>) -> HttpResponse {
+    let url = db::get_setting(pool.get_ref(), "openvas_url").await;
+    let username = db::get_setting(pool.get_ref(), "openvas_username").await;
+    let password = db::get_setting(pool.get_ref(), "openvas_password").await;
+
+    if url.is_empty() {
+        return HttpResponse::Ok().json(ApiResponse::<()> { success: false, message: Some("OpenVAS URL not configured".into()), data: None });
+    }
+    if username.is_empty() || password.is_empty() {
+        return HttpResponse::Ok().json(ApiResponse::<()> { success: false, message: Some("OpenVAS credentials not configured".into()), data: None });
+    }
+
+    let client = reqwest::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .build()
+        .unwrap_or_default();
+
+    let body = serde_json::json!({ "username": username, "password": password });
+    let resp = client
+        .post(&format!("{}/api/v1/tokens", url))
+        .json(&body)
+        .send()
+        .await;
+
+    match resp {
+        Ok(r) if r.status().is_success() => {
+            // Log out immediately — just testing connectivity
+            if let Ok(json) = r.json::<serde_json::Value>().await {
+                if let Some(token) = json["data"]["token"].as_str() {
+                    let _ = client.delete(&format!("{}/api/v1/tokens/{}", url, token)).send().await;
+                }
+            }
+            HttpResponse::Ok().json(ApiResponse::<()> { success: true, message: Some("OpenVAS connection OK".into()), data: None })
+        }
+        Ok(r) => {
+            HttpResponse::Ok().json(ApiResponse::<()> { success: false, message: Some(format!("OpenVAS returned {}", r.status())), data: None })
+        }
+        Err(e) => {
+            HttpResponse::Ok().json(ApiResponse::<()> { success: false, message: Some(format!("Cannot reach OpenVAS: {}", e)), data: None })
+        }
+    }
+}
+
 async fn sonarqube_auto_setup(pool: web::Data<DbPool>) -> HttpResponse {
     let url = db::get_setting(pool.get_ref(), "sonarqube_url").await;
     let url = if url.is_empty() { "http://sonarqube:9000".to_string() } else { url };
 
-    // This calls the same auto_provision from the scanner
-    // For simplicity, we just set the URL and let the scanner handle token generation
     db::set_setting(pool.get_ref(), "sonarqube_url", &url).await;
 
     HttpResponse::Ok().json(ApiResponse::<()> {

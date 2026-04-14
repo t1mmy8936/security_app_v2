@@ -3,7 +3,6 @@ use crate::models::*;
 
 #[component]
 pub fn ScansPage() -> impl IntoView {
-    let scans = create_resource(|| (), |_| async { fetch_scans().await });
     let (refresh_counter, set_refresh_counter) = create_signal(0u32);
 
     let scans = create_resource(move || refresh_counter.get(), |_| async { fetch_scans().await });

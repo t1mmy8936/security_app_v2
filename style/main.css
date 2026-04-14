@@ -215,6 +215,25 @@ body {
 .badge-status-failed { background: rgba(220, 53, 69, 0.2); color: var(--critical); }
 .badge-status-stopped { background: rgba(255, 193, 7, 0.2); color: #ffc107; }
 .badge-category { background: rgba(108, 117, 125, 0.2); color: var(--text-secondary); }
+.badge-restricted { background: rgba(255, 140, 0, 0.2); color: #ff8c00; }
+
+/* ── Advanced mode banner ── */
+.advanced-mode-banner {
+    background: rgba(255, 140, 0, 0.12);
+    border: 1px solid rgba(255, 140, 0, 0.4);
+    border-radius: 6px;
+    color: #ff8c00;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    padding: 6px 14px;
+    margin-bottom: 16px;
+    text-align: center;
+}
+
+/* ── Restricted tool styling ── */
+.tool-restricted { border-color: rgba(255, 140, 0, 0.3) !important; }
+.checkbox-label.restricted-tool { color: #ff8c00; }
 
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 

@@ -27,8 +27,9 @@ gloo-net = { version = "0.6", optional = true }
 gloo-timers = { version = "0.3", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
 log = { version = "0.4", optional = true }
+js-sys = { version = "0.3", optional = true }
 web-sys = { version = "0.3", optional = true, features = [
-    "Window", "console", "HtmlAudioElement", "HtmlInputElement", "EventTarget",
+    "Window", "Storage", "CustomEvent", "console", "HtmlAudioElement", "HtmlInputElement", "EventTarget",
 ] }
 
 # Server-only
@@ -59,6 +60,7 @@ hydrate = [
     "dep:gloo-timers",
     "dep:wasm-bindgen-futures",
     "dep:log",
+    "dep:js-sys",
     "dep:web-sys",
 ]
 ssr = [
@@ -90,7 +92,7 @@ site-root = "target/site"
 site-pkg-dir = "pkg"
 style-file = "style/main.css"
 assets-dir = "public"
-site-addr = "0.0.0.0:67"
+site-addr = "0.0.0.0:66"
 reload-port = 3001
 browserquery = "defaults"
 env = "DEV"

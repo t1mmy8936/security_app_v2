@@ -1,0 +1,139 @@
+trigger:
+  branches:
+    include:
+      - main
+
+# Check stage uses Microsoft-hosted Ubuntu for fast Rust linting.
+# Build + Deploy stages run on the self-hosted Windows agent on your server.
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  CARGO_TERM_COLOR: always
+  # Where the installer drops files on the server.
+  # Override in Azure DevOps → Library → Variable groups if needed.
+  DEPLOY_PATH: C:\watchtower
+
+stages:
+
+  # ── Stage 1: Lint & build check (Microsoft-hosted Ubuntu) ────────────────────
+  - stage: Check
+    displayName: 'Lint & Build Check'
+    jobs:
+      - job: Clippy
+        displayName: 'cargo build (ssr) + cargo clippy'
+        steps:
+
+          - task: Cache@2
+            displayName: 'Cache ~/.cargo/registry'
+            inputs:
+              key: 'cargo-registry | $(Agent.OS) | Cargo.lock'
+              restoreKeys: 'cargo-registry | $(Agent.OS)'
+              path: $(HOME)/.cargo/registry
+
+          - task: Cache@2
+            displayName: 'Cache target/'
+            inputs:
+              key: 'cargo-build | $(Agent.OS) | Cargo.lock'
+              restoreKeys: 'cargo-build | $(Agent.OS)'
+              path: $(Build.SourcesDirectory)/target
+
+          - script: |
+              rustup update stable
+              rustup default stable
+              rustup target add wasm32-unknown-unknown
+            displayName: 'Install Rust toolchain'
+
+          - script: cargo build --locked --features ssr
+            displayName: 'cargo build (ssr)'
+
+          - script: cargo clippy --locked --features ssr -- -D warnings
+            displayName: 'cargo clippy (ssr)'
+
+          - script: cargo clippy --locked --features hydrate --target wasm32-unknown-unknown -- -D warnings
+            displayName: 'cargo clippy (hydrate/wasm)'
+
+  # ── Stage 2: Build installer .exe (self-hosted Windows agent) ────────────────
+  - stage: BuildInstaller
+    displayName: 'Build Installer .exe'
+    dependsOn: Check
+    condition: succeeded()
+    jobs:
+      - job: InnoSetupBuild
+        displayName: 'Compile Watchtower-Setup.exe'
+        pool:
+          name: Security App
+        steps:
+          - checkout: self
+
+          - powershell: |
+              # Install Inno Setup via winget if not already present
+              $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+              if (-not (Test-Path $iscc)) {
+                Write-Host "Installing Inno Setup 6..."
+                winget install -e --id JRSoftware.InnoSetup --accept-source-agreements --accept-package-agreements
+              }
+              # Verify
+              if (-not (Test-Path $iscc)) {
+                Write-Host "##vso[task.logissue type=error]ISCC.exe not found after install."
+                exit 1
+              }
+              Write-Host "Inno Setup found at $iscc"
+            displayName: 'Ensure Inno Setup is installed'
+
+          - powershell: |
+              $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+              $issFile = "$(Build.SourcesDirectory)\installer\watchtower-setup.iss"
+              $distDir = "$(Build.SourcesDirectory)\dist"
+              New-Item -ItemType Directory -Path $distDir -Force | Out-Null
+              & $iscc $issFile
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+              Write-Host "Installer built: $distDir\Watchtower-Setup.exe"
+            displayName: 'Build Watchtower-Setup.exe'
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish installer as pipeline artifact'
+            inputs:
+              PathtoPublish: '$(Build.SourcesDirectory)\dist\Watchtower-Setup.exe'
+              ArtifactName: 'installer'
+              publishLocation: 'Container'
+
+  # ── Stage 3: Deploy — run the installer silently on the server ───────────────
+  - stage: Deploy
+    displayName: 'Deploy'
+    dependsOn: BuildInstaller
+    condition: succeeded()
+    jobs:
+      - deployment: DeployToServer
+        displayName: 'Run Watchtower-Setup.exe /SILENT then launch'
+        pool:
+          name: Security App
+        environment: production
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: installer
+                  displayName: 'Download installer artifact'
+
+                - powershell: |
+                    $exe = "$(Pipeline.Workspace)\installer\Watchtower-Setup.exe"
+                    Write-Host "Running installer: $exe"
+                    # /SILENT    — no UI, shows only a progress window
+                    # /NORESTART — never reboot automatically
+                    # /DIR       — install to DEPLOY_PATH instead of the default desktop folder
+                    Start-Process -FilePath $exe `
+                        -ArgumentList "/SILENT", "/NORESTART", "/DIR=`"$(DEPLOY_PATH)`"" `
+                        -Wait -NoNewWindow
+                    if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                    Write-Host "Installer finished."
+                  displayName: 'Install Watchtower'
+
+                - powershell: |
+                    # execute-order-66.ps1 does: docker compose up --build -d
+                    $script = "$(DEPLOY_PATH)\execute-order-66.ps1"
+                    Write-Host "Launching Watchtower via $script"
+                    & powershell.exe -ExecutionPolicy Bypass -File $script
+                    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                  displayName: 'Execute Order 66 — docker compose up --build -d'

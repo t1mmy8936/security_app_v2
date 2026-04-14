@@ -3,6 +3,7 @@ use leptos_router::*;
 use crate::models::*;
 use super::super::components::severity_badge::SeverityBadge;
 use super::super::components::stat_card::StatCard;
+use crate::frontend::app::RESTRICTED_TOOLS;
 
 #[component]
 pub fn ResultsPage() -> impl IntoView {
@@ -17,6 +18,9 @@ pub fn ResultsPage() -> impl IntoView {
     let (tool_filter, set_tool_filter) = create_signal("all".to_string());
     let (search_query, set_search_query) = create_signal(String::new());
     let (show_log, set_show_log) = create_signal(false);
+    let (scan_completed, set_scan_completed) = create_signal(false);
+
+    let advanced_mode = use_context::<ReadSignal<bool>>().unwrap_or_else(|| create_signal(false).0);
 
     let scan = create_resource(move || scan_id(), |id| async move {
         fetch_scan(id).await
@@ -45,7 +49,15 @@ pub fn ResultsPage() -> impl IntoView {
                     if let Ok(s) = fetch_status(id).await {
                         let done = s.status == "completed" || s.status == "failed";
                         set_status.set(Some(s));
-                        if done { return; }
+                        if done {
+                            // Refetch scores and findings the first time we detect completion
+                            if !scan_completed.get_untracked() {
+                                set_scan_completed.set(true);
+                                scores.refetch();
+                                findings.refetch();
+                            }
+                            return;
+                        }
                     }
                     if let Ok(logs) = fetch_logs(id).await {
                         set_logs.set(logs);
@@ -166,7 +178,9 @@ pub fn ResultsPage() -> impl IntoView {
                             </div>
                         </div>
                         <div class="tool-scores-grid">
-                            {score_data.tool_scores.into_iter().map(|ts| {
+                            {score_data.tool_scores.into_iter()
+                                .filter(|ts| advanced_mode.get_untracked() || !RESTRICTED_TOOLS.contains(&ts.tool.as_str()))
+                                .map(|ts| {
                                 let bar_color = if ts.score >= 80 { "var(--success)" }
                                     else if ts.score >= 60 { "var(--medium)" }
                                     else if ts.score >= 40 { "var(--high)" }
@@ -239,7 +253,11 @@ pub fn ResultsPage() -> impl IntoView {
                     <Suspense fallback=move || view! { <span></span> }>
                         {move || findings.get().map(|data| match data {
                             Ok(ref fl) => {
-                                let mut tools: Vec<String> = fl.iter().map(|f| f.tool.clone()).collect();
+                                let adv = advanced_mode.get();
+                                let mut tools: Vec<String> = fl.iter()
+                                    .map(|f| f.tool.clone())
+                                    .filter(|t| adv || !RESTRICTED_TOOLS.contains(&t.as_str()))
+                                    .collect();
                                 tools.sort();
                                 tools.dedup();
                                 view! {
