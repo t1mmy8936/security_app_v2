@@ -327,7 +327,7 @@ async fn auto_provision(pool: &DbPool, sonar_url: &str) -> Result<(), String> {
 
     let mut auth_password = String::new();
     for pw in &passwords {
-        let resp = client.get(&format!("{}/api/system/status", sonar_url))
+        let resp = client.get(format!("{}/api/system/status", sonar_url))
             .basic_auth("admin", Some(pw))
             .send()
             .await
@@ -344,7 +344,7 @@ async fn auto_provision(pool: &DbPool, sonar_url: &str) -> Result<(), String> {
     }
 
     // Generate token (USER_TOKEN so it can both submit analysis and read issues)
-    let token_resp = client.post(&format!("{}/api/user_tokens/generate", sonar_url))
+    let token_resp = client.post(format!("{}/api/user_tokens/generate", sonar_url))
         .basic_auth("admin", Some(&auth_password))
         .form(&[
             ("name", format!("watchtower-{}", chrono::Utc::now().timestamp())),

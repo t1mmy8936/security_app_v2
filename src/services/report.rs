@@ -1,7 +1,7 @@
 use crate::db::DbPool;
 
 fn compute_score(critical: i64, high: i64, medium: i64, low: i64, _info: i64) -> i64 {
-    let deductions = critical * 15 + high * 8 + medium * 3 + low * 1;
+    let deductions = critical * 15 + high * 8 + medium * 3 + low;
     (100 - deductions).max(0)
 }
 
@@ -28,6 +28,7 @@ fn grade_color(grade: &str) -> &'static str {
     }
 }
 
+#[allow(clippy::type_complexity)]
 pub async fn generate_html_report(pool: &DbPool, scan_job_id: i64) -> Result<String, String> {
     let job = sqlx::query_as::<_, (String, String, String, String, Option<String>, Option<i64>, i64, i64, i64, i64, i64, i64, Option<String>)>(
         "SELECT scan_type, target, target_source, status, completed_at, duration_seconds,
@@ -76,7 +77,7 @@ pub async fn generate_html_report(pool: &DbPool, scan_job_id: i64) -> Result<Str
 
     let mut score_cards_html = String::new();
     let mut sorted_tools: Vec<_> = tool_counts.iter().collect();
-    sorted_tools.sort_by_key(|(name, _)| name.clone());
+    sorted_tools.sort_by_key(|(name, _)| *name);
     for (tool, (c, h, m, l, i)) in &sorted_tools {
         let s = compute_score(*c, *h, *m, *l, *i);
         let g = score_to_grade(s);
@@ -244,6 +245,7 @@ pub async fn generate_html_report(pool: &DbPool, scan_job_id: i64) -> Result<Str
     Ok(file_path)
 }
 
+#[allow(clippy::type_complexity)]
 pub async fn generate_pdf_report(pool: &DbPool, scan_job_id: i64) -> Result<String, String> {
     let job = sqlx::query_as::<_, (String, String, String, String, Option<String>, Option<i64>, i64, i64, i64, i64, i64, i64, Option<String>)>(
         "SELECT scan_type, target, target_source, status, completed_at, duration_seconds,
@@ -292,7 +294,7 @@ pub async fn generate_pdf_report(pool: &DbPool, scan_job_id: i64) -> Result<Stri
     // Tool score rows
     let mut tool_rows = String::new();
     let mut sorted_tools: Vec<_> = tool_counts.iter().collect();
-    sorted_tools.sort_by_key(|(name, _)| name.clone());
+    sorted_tools.sort_by_key(|(name, _)| *name);
     for (tool, (c, h, m, l, i)) in &sorted_tools {
         let s = compute_score(*c, *h, *m, *l, *i);
         let g = score_to_grade(s);

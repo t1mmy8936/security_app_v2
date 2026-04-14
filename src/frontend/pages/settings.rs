@@ -344,7 +344,7 @@ async fn do_save_settings(pairs: Vec<SettingPair>) -> Result<String, String> {
         Ok(api.message.unwrap_or("Saved".into()))
     }
     #[cfg(not(feature = "hydrate"))]
-    { Err("SSR".into()) }
+    { let _ = pairs; Err("SSR".into()) }
 }
 
 async fn do_test_email() -> Result<String, String> {

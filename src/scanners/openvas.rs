@@ -164,7 +164,7 @@ async fn authenticate(
 ) -> Result<String, String> {
     let body = serde_json::json!({ "username": username, "password": password });
     let resp = client
-        .post(&format!("{}/api/v1/tokens", url))
+        .post(format!("{}/api/v1/tokens", url))
         .json(&body)
         .send()
         .await
@@ -183,7 +183,7 @@ async fn authenticate(
 
 async fn logout(client: &reqwest::Client, url: &str, token: &str) -> Result<(), String> {
     client
-        .delete(&format!("{}/api/v1/tokens/{}", url, token))
+        .delete(format!("{}/api/v1/tokens/{}", url, token))
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -204,7 +204,7 @@ async fn create_target(
         "port_list": { "id": "33d0cd82-57c6-11e1-8251-406186ea4fc5" }  // All IANA assigned TCP
     });
     let resp = client
-        .post(&format!("{}/api/v1/targets", url))
+        .post(format!("{}/api/v1/targets", url))
         .bearer_auth(token)
         .json(&body)
         .send()
@@ -236,7 +236,7 @@ async fn create_task(
         "scanner": { "id": OPENVAS_SCANNER }
     });
     let resp = client
-        .post(&format!("{}/api/v1/tasks", url))
+        .post(format!("{}/api/v1/tasks", url))
         .bearer_auth(token)
         .json(&body)
         .send()
@@ -260,7 +260,7 @@ async fn start_task(
     task_id: &str,
 ) -> Result<String, String> {
     let resp = client
-        .post(&format!("{}/api/v1/tasks/{}/start", url, task_id))
+        .post(format!("{}/api/v1/tasks/{}/start", url, task_id))
         .bearer_auth(token)
         .send()
         .await
@@ -287,7 +287,7 @@ async fn get_task_status(
     task_id: &str,
 ) -> Result<String, String> {
     let resp = client
-        .get(&format!("{}/api/v1/tasks/{}", url, task_id))
+        .get(format!("{}/api/v1/tasks/{}", url, task_id))
         .bearer_auth(token)
         .send()
         .await
@@ -314,7 +314,7 @@ async fn fetch_report(
 ) -> Result<Vec<ToolFinding>, String> {
     // Request XML format; filter to High/Medium/Low/Log severity levels
     let resp = client
-        .get(&format!(
+        .get(format!(
             "{}/api/v1/reports/{}?filter=levels%3Dhml&report_format=a994b278-1f62-11e1-96ac-406186ea4fc5",
             url, report_id
         ))
@@ -338,7 +338,7 @@ async fn fetch_report(
 
 async fn delete_target(client: &reqwest::Client, url: &str, token: &str, target_id: &str) {
     let _ = client
-        .delete(&format!("{}/api/v1/targets/{}", url, target_id))
+        .delete(format!("{}/api/v1/targets/{}", url, target_id))
         .bearer_auth(token)
         .send()
         .await;
@@ -346,7 +346,7 @@ async fn delete_target(client: &reqwest::Client, url: &str, token: &str, target_
 
 async fn delete_task(client: &reqwest::Client, url: &str, token: &str, task_id: &str) {
     let _ = client
-        .delete(&format!("{}/api/v1/tasks/{}", url, task_id))
+        .delete(format!("{}/api/v1/tasks/{}", url, task_id))
         .bearer_auth(token)
         .send()
         .await;

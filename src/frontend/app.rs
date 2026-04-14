@@ -30,7 +30,7 @@ pub fn App() -> impl IntoView {
         { false }
     };
 
-    let (order66_mode, set_order66_mode) = create_signal(initial);
+    let (order66_mode, _set_order66_mode) = create_signal(initial);
     provide_context(order66_mode);
 
     // Listen for the custom event dispatched by order66.js on each toggle.
@@ -48,7 +48,7 @@ pub fn App() -> impl IntoView {
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false)
                 });
-            set_order66_mode.set(active);
+            _set_order66_mode.set(active);
         });
 
         if let Some(win) = web_sys::window() {

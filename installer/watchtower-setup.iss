@@ -170,7 +170,8 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  ProfilePath, ProfileContent, FuncBlock: String;
+  ProfilePath, FuncBlock: String;
+  ProfileContent: AnsiString;
 begin
   if CurStep = ssPostInstall then
   begin
@@ -192,7 +193,7 @@ begin
       if not LoadStringFromFile(ProfilePath, ProfileContent) then
         ProfileContent := '';
       if Pos('function execute', ProfileContent) = 0 then
-        SaveStringToFile(ProfilePath, #13#10 + FuncBlock, True);
+        SaveStringToFile(ProfilePath, Chr(13) + Chr(10) + FuncBlock, True);
     end
     else
     begin
@@ -204,7 +205,8 @@ end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
-  ProfilePath, ProfileContent: String;
+  ProfilePath: String;
+  ProfileContent: AnsiString;
   StartPos: Integer;
 begin
   if CurUninstallStep = usPostUninstall then

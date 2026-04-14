@@ -392,10 +392,12 @@ async fn do_start_scan(req: StartScanRequest) -> Result<i64, String> {
             .ok_or("No scan_id returned".into())
     }
     #[cfg(not(feature = "hydrate"))]
-    { Err("SSR".into()) }
+    { let _ = req; Err("SSR".into()) }
 }
 
 async fn fetch_folders(path: Option<String>) -> Result<BrowseFoldersResponse, String> {
+    #[cfg(not(feature = "hydrate"))]
+    { let _ = path; }
     #[cfg(feature = "hydrate")]
     {
         let req = BrowseFoldersRequest { path };

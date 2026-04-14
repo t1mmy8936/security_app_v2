@@ -12,25 +12,21 @@ pub fn ResultsPage() -> impl IntoView {
         params.with(|p| p.get("id").cloned().unwrap_or_default().parse::<i64>().unwrap_or(0))
     };
 
-    let (log_entries, set_log_entries) = create_signal(Vec::<LogEntry>::new());
-    let (status_data, set_status_data) = create_signal(None::<ScanStatusResponse>);
+    let (log_entries, _set_log_entries) = create_signal(Vec::<LogEntry>::new());
+    let (status_data, _set_status_data) = create_signal(None::<ScanStatusResponse>);
     let (severity_filter, set_severity_filter) = create_signal("all".to_string());
     let (tool_filter, set_tool_filter) = create_signal("all".to_string());
     let (search_query, set_search_query) = create_signal(String::new());
     let (show_log, set_show_log) = create_signal(false);
-    let (scan_completed, set_scan_completed) = create_signal(false);
+    let (scan_completed, _set_scan_completed) = create_signal(false);
 
     let advanced_mode = use_context::<ReadSignal<bool>>().unwrap_or_else(|| create_signal(false).0);
 
-    let scan = create_resource(move || scan_id(), |id| async move {
-        fetch_scan(id).await
-    });
-
-    let findings = create_resource(move || scan_id(), |id| async move {
+    let findings = create_resource(scan_id, |id| async move {
         fetch_findings(id).await
     });
 
-    let scores = create_resource(move || scan_id(), |id| async move {
+    let scores = create_resource(scan_id, |id| async move {
         fetch_scores(id).await
     });
 
@@ -39,12 +35,10 @@ pub fn ResultsPage() -> impl IntoView {
     {
         create_effect(move |_| {
             let id = scan_id();
-            let set_status = set_status_data;
-            let set_logs = set_log_entries;
+            let set_status = _set_status_data;
+            let set_logs = _set_log_entries;
 
-            gloo_timers::callback::Interval::new(3_000, move || {
-                let set_status = set_status.clone();
-                let set_logs = set_logs.clone();
+            let handle = gloo_timers::callback::Interval::new(3_000, move || {
                 wasm_bindgen_futures::spawn_local(async move {
                     if let Ok(s) = fetch_status(id).await {
                         let done = s.status == "completed" || s.status == "failed";
@@ -52,7 +46,7 @@ pub fn ResultsPage() -> impl IntoView {
                         if done {
                             // Refetch scores and findings the first time we detect completion
                             if !scan_completed.get_untracked() {
-                                set_scan_completed.set(true);
+                                _set_scan_completed.set(true);
                                 scores.refetch();
                                 findings.refetch();
                             }
@@ -63,8 +57,8 @@ pub fn ResultsPage() -> impl IntoView {
                         set_logs.set(logs);
                     }
                 });
-
-            }).forget();
+            });
+            on_cleanup(move || drop(handle));
         });
     }
 
@@ -396,6 +390,7 @@ fn event_target_value(ev: &leptos::ev::Event) -> String {
     }
 }
 
+#[allow(dead_code)]
 async fn fetch_scan(id: i64) -> Result<ScanJob, String> {
     #[cfg(feature = "hydrate")]
     {
@@ -408,6 +403,7 @@ async fn fetch_scan(id: i64) -> Result<ScanJob, String> {
     { let _ = id; Err("SSR".into()) }
 }
 
+#[allow(dead_code)]
 async fn fetch_status(id: i64) -> Result<ScanStatusResponse, String> {
     #[cfg(feature = "hydrate")]
     {
@@ -419,6 +415,7 @@ async fn fetch_status(id: i64) -> Result<ScanStatusResponse, String> {
     { let _ = id; Err("SSR".into()) }
 }
 
+#[allow(dead_code)]
 async fn fetch_logs(id: i64) -> Result<Vec<LogEntry>, String> {
     #[cfg(feature = "hydrate")]
     {
@@ -454,6 +451,7 @@ async fn fetch_scores(id: i64) -> Result<ScanScoreResponse, String> {
     { let _ = id; Err("SSR".into()) }
 }
 
+#[allow(dead_code)]
 async fn post_scan_action(id: i64, action: &str) -> Result<(), String> {
     #[cfg(feature = "hydrate")]
     {

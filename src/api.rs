@@ -105,6 +105,7 @@ async fn get_scan(pool: web::Data<DbPool>, path: web::Path<i64>) -> HttpResponse
     }
 }
 
+#[allow(clippy::type_complexity)]
 async fn scan_status(pool: web::Data<DbPool>, path: web::Path<i64>) -> HttpResponse {
     let id = path.into_inner();
     let row: Option<(String, Option<String>, Option<i64>, Option<i64>, i64, i64, i64, i64, i64, i64, Option<i64>, Option<String>)> =
@@ -176,7 +177,7 @@ async fn scan_findings(pool: web::Data<DbPool>, path: web::Path<i64>) -> HttpRes
 }
 
 fn compute_score(critical: i64, high: i64, medium: i64, low: i64, _info: i64) -> i64 {
-    let deductions = critical * 15 + high * 8 + medium * 3 + low * 1;
+    let deductions = critical * 15 + high * 8 + medium * 3 + low;
     (100 - deductions).max(0)
 }
 
@@ -538,7 +539,7 @@ async fn test_sonarqube(pool: web::Data<DbPool>) -> HttpResponse {
     }
 
     let client = reqwest::Client::new();
-    let resp = client.get(&format!("{}/api/system/status", url))
+    let resp = client.get(format!("{}/api/system/status", url))
         .bearer_auth(&token)
         .send()
         .await;
@@ -575,7 +576,7 @@ async fn test_openvas(pool: web::Data<DbPool>) -> HttpResponse {
 
     let body = serde_json::json!({ "username": username, "password": password });
     let resp = client
-        .post(&format!("{}/api/v1/tokens", url))
+        .post(format!("{}/api/v1/tokens", url))
         .json(&body)
         .send()
         .await;
@@ -585,7 +586,7 @@ async fn test_openvas(pool: web::Data<DbPool>) -> HttpResponse {
             // Log out immediately — just testing connectivity
             if let Ok(json) = r.json::<serde_json::Value>().await {
                 if let Some(token) = json["data"]["token"].as_str() {
-                    let _ = client.delete(&format!("{}/api/v1/tokens/{}", url, token)).send().await;
+                    let _ = client.delete(format!("{}/api/v1/tokens/{}", url, token)).send().await;
                 }
             }
             HttpResponse::Ok().json(ApiResponse::<()> { success: true, message: Some("OpenVAS connection OK".into()), data: None })
@@ -625,7 +626,7 @@ async fn sonarqube_quality_profiles(pool: web::Data<DbPool>) -> HttpResponse {
     }
 
     let client = reqwest::Client::new();
-    let resp = client.get(&format!("{}/api/qualityprofiles/search", url))
+    let resp = client.get(format!("{}/api/qualityprofiles/search", url))
         .bearer_auth(&token)
         .send()
         .await;
@@ -698,7 +699,7 @@ async fn download_pdf_report(pool: web::Data<DbPool>, path: web::Path<i64>) -> H
     let pdf_path = format!("/app/reports/scan_{}_report.pdf", id);
 
     // Auto-generate if PDF doesn't exist yet
-    if tokio::fs::try_exists(&pdf_path).await.unwrap_or(false) == false {
+    if !tokio::fs::try_exists(&pdf_path).await.unwrap_or(false) {
         if let Err(e) = crate::services::report::generate_pdf_report(pool.get_ref(), id).await {
             return HttpResponse::InternalServerError().json(ApiResponse::<()> {
                 success: false,

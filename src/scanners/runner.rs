@@ -351,7 +351,7 @@ fn preset_tools(scan_type: &str) -> Vec<String> {
         .unwrap_or_else(|| vec!["nmap".into()])
 }
 
-async fn run_tool(pool: &DbPool, scan_job_id: i64, tool: &str, target: &str, target_source: &str) -> Vec<ToolFinding> {
+async fn run_tool(pool: &DbPool, scan_job_id: i64, tool: &str, target: &str, _target_source: &str) -> Vec<ToolFinding> {
     match tool {
         "zap" => super::zap::scan(pool, scan_job_id, target).await,
         "nmap" => super::nmap::scan(pool, scan_job_id, target).await,

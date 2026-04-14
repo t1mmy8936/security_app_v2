@@ -3,25 +3,25 @@ use crate::models::*;
 
 #[component]
 pub fn ScanStatusBar() -> impl IntoView {
-    let (scans, set_scans) = create_signal(Vec::<ScanJob>::new());
+    let (scans, _set_scans) = create_signal(Vec::<ScanJob>::new());
     let (minimized, set_minimized) = create_signal(false);
     let (dismissed_ids, set_dismissed_ids) = create_signal(Vec::<i64>::new());
 
     #[cfg(feature = "hydrate")]
     {
         create_effect(move |_| {
-            let set_scans = set_scans.clone();
-            gloo_timers::callback::Interval::new(5_000, move || {
-                let set_scans = set_scans.clone();
+            let set_scans = _set_scans;
+            let handle = gloo_timers::callback::Interval::new(5_000, move || {
                 wasm_bindgen_futures::spawn_local(async move {
                     if let Ok(data) = fetch_active_scans().await {
                         set_scans.set(data);
                     }
                 });
-            }).forget();
+            });
+            on_cleanup(move || drop(handle));
 
             // Initial fetch
-            let set_scans2 = set_scans.clone();
+            let set_scans2 = set_scans;
             wasm_bindgen_futures::spawn_local(async move {
                 if let Ok(data) = fetch_active_scans().await {
                     set_scans2.set(data);
@@ -29,10 +29,6 @@ pub fn ScanStatusBar() -> impl IntoView {
             });
         });
     }
-
-    let has_active = move || {
-        scans.get().iter().any(|s| s.status == "running" || s.status == "pending" || s.status == "stopped")
-    };
 
     view! {
         {move || {
@@ -63,7 +59,7 @@ pub fn ScanStatusBar() -> impl IntoView {
                             } else {
                                 view! { <span class="ssb-dot ssb-dot-idle"></span> }.into_view()
                             }}
-                            {if active.len() > 0 {
+                            {if !active.is_empty() {
                                 format!("{} scan(s) active", active.len())
                             } else {
                                 "No active scans".to_string()
@@ -71,7 +67,7 @@ pub fn ScanStatusBar() -> impl IntoView {
                         </span>
                         <div class="ssb-header-actions">
                             {(!active.is_empty() || !recent_done.is_empty()).then(|| {
-                                let set_dismissed = set_dismissed_ids.clone();
+                                let set_dismissed = set_dismissed_ids;
                                 let done_ids: Vec<i64> = scan_list.iter()
                                     .filter(|s| s.status == "completed" || s.status == "failed")
                                     .map(|s| s.id).collect();
@@ -114,40 +110,40 @@ pub fn ScanStatusBar() -> impl IntoView {
                                                 <span class="ssb-current-tool">"⚙ " {t}</span>
                                             })}
                                             {(scan.status == "running").then(|| {
-                                                let sid = scan.id;
+                                                let _sid = scan.id;
                                                 view! {
                                                     <button class="ssb-action-btn ssb-stop-btn" title="Stop scan"
                                                         on:click=move |e| {
                                                             e.stop_propagation();
                                                             #[cfg(feature = "hydrate")]
                                                             wasm_bindgen_futures::spawn_local(async move {
-                                                                let _ = post_scan_action(sid, "stop").await;
+                                                                let _ = post_scan_action(_sid, "stop").await;
                                                             });
                                                         }>"⏹"</button>
                                                 }
                                             })}
                                             {(scan.status == "stopped").then(|| {
-                                                let sid = scan.id;
+                                                let _sid = scan.id;
                                                 view! {
                                                     <button class="ssb-action-btn ssb-resume-btn" title="Resume scan"
                                                         on:click=move |e| {
                                                             e.stop_propagation();
                                                             #[cfg(feature = "hydrate")]
                                                             wasm_bindgen_futures::spawn_local(async move {
-                                                                let _ = post_scan_action(sid, "resume").await;
+                                                                let _ = post_scan_action(_sid, "resume").await;
                                                             });
                                                         }>"▶"</button>
                                                 }
                                             })}
                                             {(scan.status == "running" || scan.status == "stopped").then(|| {
-                                                let sid = scan.id;
+                                                let _sid = scan.id;
                                                 view! {
                                                     <button class="ssb-action-btn ssb-cancel-btn" title="Cancel and remove"
                                                         on:click=move |e| {
                                                             e.stop_propagation();
                                                             #[cfg(feature = "hydrate")]
                                                             wasm_bindgen_futures::spawn_local(async move {
-                                                                let _ = post_scan_action(sid, "cancel").await;
+                                                                let _ = post_scan_action(_sid, "cancel").await;
                                                             });
                                                         }>"🗑"</button>
                                                 }
@@ -197,6 +193,7 @@ pub fn ScanStatusBar() -> impl IntoView {
     }
 }
 
+#[allow(dead_code)]
 async fn fetch_active_scans() -> Result<Vec<ScanJob>, String> {
     #[cfg(feature = "hydrate")]
     {
@@ -211,6 +208,7 @@ async fn fetch_active_scans() -> Result<Vec<ScanJob>, String> {
     }
 }
 
+#[allow(dead_code)]
 async fn post_scan_action(id: i64, action: &str) -> Result<(), String> {
     #[cfg(feature = "hydrate")]
     {
