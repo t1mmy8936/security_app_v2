@@ -43,6 +43,7 @@ fn parse_sqlmap_output(output: &str) -> Vec<ToolFinding> {
                 cwe_id: Some("CWE-89".into()),
                 cvss_score: Some(9.8),
                 recommendation: Some("Use parameterized queries or prepared statements".into()),
+                issue_type: Some("Vulnerability".into()),
             });
         }
 
@@ -57,6 +58,7 @@ fn parse_sqlmap_output(output: &str) -> Vec<ToolFinding> {
                 cwe_id: Some("CWE-89".into()),
                 cvss_score: Some(8.0),
                 recommendation: Some("Sanitize user input and use parameterized queries".into()),
+                issue_type: Some("Vulnerability".into()),
             });
         }
     }

@@ -474,6 +474,7 @@ fn parse_xml_report(xml: &str) -> Result<Vec<ToolFinding>, String> {
                             cwe_id: None,
                             cvss_score: Some(severity_f),
                             recommendation: Some(format!("NVT OID: {}", current_nvt_oid)),
+                            issue_type: None,
                         });
                     }
                     in_result = false;

@@ -438,6 +438,7 @@ async fn list_tools() -> HttpResponse {
         description: t.description.into(),
         available: true,
         category: t.category.into(),
+        web_only: t.web_only,
     }).collect();
 
     HttpResponse::Ok().json(ApiResponse { success: true, message: None, data: Some(tools) })
@@ -686,9 +687,14 @@ async fn generate_report(pool: web::Data<DbPool>, path: web::Path<i64>) -> HttpR
     }
 }
 
-async fn generate_pdf_report(pool: web::Data<DbPool>, path: web::Path<i64>) -> HttpResponse {
+async fn generate_pdf_report(
+    pool: web::Data<DbPool>,
+    path: web::Path<i64>,
+    opts: web::Json<PdfExportOptions>,
+) -> HttpResponse {
     let id = path.into_inner();
-    match crate::services::report::generate_pdf_report(pool.get_ref(), id).await {
+    let opts = opts.into_inner();
+    match crate::services::report::generate_pdf_report(pool.get_ref(), id, &opts).await {
         Ok(path) => HttpResponse::Ok().json(ApiResponse { success: true, message: Some("PDF report generated".into()), data: Some(path) }),
         Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()> { success: false, message: Some(e), data: None }),
     }
@@ -700,7 +706,7 @@ async fn download_pdf_report(pool: web::Data<DbPool>, path: web::Path<i64>) -> H
 
     // Auto-generate if PDF doesn't exist yet
     if !tokio::fs::try_exists(&pdf_path).await.unwrap_or(false) {
-        if let Err(e) = crate::services::report::generate_pdf_report(pool.get_ref(), id).await {
+        if let Err(e) = crate::services::report::generate_pdf_report(pool.get_ref(), id, &PdfExportOptions::default()).await {
             return HttpResponse::InternalServerError().json(ApiResponse::<()> {
                 success: false,
                 message: Some(format!("Failed to generate PDF: {}", e)),
@@ -899,7 +905,7 @@ async fn fetch_findings(pool: &DbPool, scan_job_id: i64) -> Vec<Finding> {
     sqlx::query_as::<_, Finding>(
         "SELECT id, scan_job_id, tool, severity, title, description, file_path, line_number,
                 cwe_id, cvss_score, raw_output, recommendation,
-                text_range_start, text_range_end, status, author, rule_url, data_flow
+                text_range_start, text_range_end, status, author, rule_url, data_flow, issue_type
          FROM findings WHERE scan_job_id = ?
          ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END"
     )

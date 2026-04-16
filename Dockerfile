@@ -4,7 +4,8 @@ FROM rust:latest AS builder
 RUN apt-get update && apt-get install -y \
     pkg-config libssl-dev curl \
     && rustup target add wasm32-unknown-unknown \
-    && cargo install cargo-leptos
+    && curl --proto '=https' --tlsv1.2 -LsSf \
+        https://github.com/leptos-rs/cargo-leptos/releases/download/v0.3.6/cargo-leptos-installer.sh | sh
 
 WORKDIR /app
 COPY Cargo.toml Cargo.lock* rust-toolchain.toml ./

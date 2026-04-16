@@ -214,8 +214,8 @@ pub async fn run_scan(pool: DbPool, scan_job_id: i64) {
         // Persist this tool's findings to the DB immediately so they survive a restart.
         for f in &findings {
             sqlx::query(
-                "INSERT INTO findings (scan_job_id, tool, severity, title, description, file_path, line_number, cwe_id, cvss_score, recommendation)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                "INSERT INTO findings (scan_job_id, tool, severity, title, description, file_path, line_number, cwe_id, cvss_score, recommendation, issue_type)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(scan_job_id)
             .bind(&f.tool)
@@ -227,6 +227,7 @@ pub async fn run_scan(pool: DbPool, scan_job_id: i64) {
             .bind(&f.cwe_id)
             .bind(f.cvss_score)
             .bind(&f.recommendation)
+            .bind(&f.issue_type)
             .execute(&pool)
             .await
             .ok();
@@ -298,7 +299,7 @@ pub async fn run_scan(pool: DbPool, scan_job_id: i64) {
             db::insert_scan_log(&pool, scan_job_id, "warn", None, &format!("⚠️ HTML report failed: {}", e)).await;
         }
     }
-    match crate::services::report::generate_pdf_report(&pool, scan_job_id).await {
+    match crate::services::report::generate_pdf_report(&pool, scan_job_id, &crate::models::PdfExportOptions::default()).await {
         Ok(_) => {
             db::insert_scan_log(&pool, scan_job_id, "info", None, "✅ PDF report generated").await;
         }

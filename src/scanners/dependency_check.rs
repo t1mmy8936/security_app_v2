@@ -93,6 +93,7 @@ fn parse_dc_json(output: &str) -> Vec<ToolFinding> {
                             cwe_id: cwes,
                             cvss_score: cvss,
                             recommendation: Some("Update the dependency to a non-vulnerable version".into()),
+                            issue_type: None,
                         });
                     }
                 }

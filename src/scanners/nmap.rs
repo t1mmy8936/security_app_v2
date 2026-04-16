@@ -66,8 +66,7 @@ fn parse_nmap_xml(xml: &str) -> Vec<ToolFinding> {
                 line_number: None,
                 cwe_id: None,
                 cvss_score: None,
-                recommendation: Some("Review if this port should be exposed".into()),
-            });
+                recommendation: Some("Review if this port should be exposed".into()),                issue_type: None,            });
         }
         if line.contains("<script ") && line.contains("VULNERABLE") {
             let script_id = extract_attr(line, "id").unwrap_or_else(|| "unknown".into());
@@ -80,8 +79,7 @@ fn parse_nmap_xml(xml: &str) -> Vec<ToolFinding> {
                 line_number: None,
                 cwe_id: None,
                 cvss_score: None,
-                recommendation: Some("Investigate and patch the identified vulnerability".into()),
-            });
+                recommendation: Some("Investigate and patch the identified vulnerability".into()),                issue_type: None,            });
         }
     }
 

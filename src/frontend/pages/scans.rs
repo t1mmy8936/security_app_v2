@@ -74,7 +74,7 @@ pub fn ScansPage() -> impl IntoView {
                                                 }>{scan.started_at.clone()}</td>
                                                 <td class="scan-actions-cell">
                                                     {(status == "running").then(|| {
-                                                        let set_refresh = set_refresh;
+                                                        let _set_refresh = set_refresh;
                                                         view! {
                                                             <button class="scan-action-btn scan-stop-btn" title="Stop scan"
                                                                 on:click=move |e| {
@@ -82,13 +82,13 @@ pub fn ScansPage() -> impl IntoView {
                                                                     #[cfg(feature = "hydrate")]
                                                                     wasm_bindgen_futures::spawn_local(async move {
                                                                         let _ = post_scan_action(scan_id, "stop").await;
-                                                                        set_refresh.update(|v| *v += 1);
+                                                                        _set_refresh.update(|v| *v += 1);
                                                                     });
                                                                 }>"⏹ Stop"</button>
                                                         }
                                                     })}
                                                     {(status == "stopped").then(|| {
-                                                        let set_refresh = set_refresh;
+                                                        let _set_refresh = set_refresh;
                                                         view! {
                                                             <button class="scan-action-btn scan-resume-btn" title="Resume scan"
                                                                 on:click=move |e| {
@@ -96,7 +96,7 @@ pub fn ScansPage() -> impl IntoView {
                                                                     #[cfg(feature = "hydrate")]
                                                                     wasm_bindgen_futures::spawn_local(async move {
                                                                         let _ = post_scan_action(scan_id, "resume").await;
-                                                                        set_refresh.update(|v| *v += 1);
+                                                                        _set_refresh.update(|v| *v += 1);
                                                                     });
                                                                 }>"▶ Resume"</button>
                                                         }

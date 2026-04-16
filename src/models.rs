@@ -26,7 +26,7 @@ pub struct ScanJob {
     pub tools_completed: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(feature = "ssr", derive(sqlx::FromRow))]
 pub struct Finding {
     pub id: i64,
@@ -47,6 +47,23 @@ pub struct Finding {
     pub author: Option<String>,
     pub rule_url: Option<String>,
     pub data_flow: Option<String>,
+    pub issue_type: Option<String>,
+}
+
+/// Options sent from the frontend when generating a custom PDF report.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PdfExportOptions {
+    /// "all" or a specific tool name — matches the active tool filter
+    pub tool_filter: Option<String>,
+    /// "all" or a specific severity — matches the active severity filter
+    pub severity_filter: Option<String>,
+    /// "all" or a specific issue type — matches the active issue-type filter
+    pub issue_type_filter: Option<String>,
+    /// Free-text search applied to title/tool/file
+    pub search_query: Option<String>,
+    /// Which columns to include.  None / empty = include all.
+    /// Valid values: "severity", "tool", "title", "file", "cwe", "type", "cvss", "description"
+    pub columns: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,6 +184,7 @@ pub struct ToolInfo {
     pub description: String,
     pub available: bool,
     pub category: String,
+    pub web_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -188,6 +206,7 @@ pub struct ToolFinding {
     pub cwe_id: Option<String>,
     pub cvss_score: Option<f64>,
     pub recommendation: Option<String>,
+    pub issue_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

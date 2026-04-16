@@ -66,6 +66,11 @@ pub async fn scan(pool: &DbPool, scan_job_id: i64, target: &str) -> Vec<ToolFind
 
     if !quality_profile.is_empty() {
         args.push(format!("-Dsonar.qualityprofile={}", quality_profile));
+        db::insert_scan_log(pool, scan_job_id, "info", Some("sonarqube"),
+            &format!("Using quality profile: {}", quality_profile)).await;
+    } else {
+        db::insert_scan_log(pool, scan_job_id, "info", Some("sonarqube"),
+            "Using server default quality profile (no profile configured)").await;
     }
 
     // Auto-detect java binaries
@@ -266,19 +271,29 @@ async fn fetch_issues(pool: &DbPool, scan_job_id: i64, sonar_url: &str, token: &
                             None
                         };
 
+                        let raw_type = issue["type"].as_str().unwrap_or("");
+                        let issue_type = match raw_type {
+                            "VULNERABILITY" => Some("Vulnerability".to_string()),
+                            "BUG" => Some("Bug".to_string()),
+                            "CODE_SMELL" => Some("Code Smell".to_string()),
+                            "SECURITY_HOTSPOT" => Some("Security Hotspot".to_string()),
+                            s if !s.is_empty() => Some(s.to_string()),
+                            _ => None,
+                        };
+
                         findings.push(ToolFinding {
                             tool: "sonarqube".into(),
                             severity: severity.into(),
                             title: issue["message"].as_str().unwrap_or("SonarQube Issue").into(),
-                            description: Some(format!("Rule: {} | Type: {} | Effort: {}",
+                            description: Some(format!("Rule: {} | Effort: {}",
                                 rule,
-                                issue["type"].as_str().unwrap_or(""),
                                 issue["effort"].as_str().unwrap_or(""))),
                             file_path: issue["component"].as_str().map(|s| s.to_string()),
                             line_number: issue["line"].as_i64(),
                             cwe_id: cwe,
                             cvss_score: None,
                             recommendation: rule_url,
+                            issue_type,
                         });
                     }
 
@@ -369,5 +384,105 @@ async fn auto_provision(pool: &DbPool, sonar_url: &str) -> Result<(), String> {
     db::set_setting(pool, "sonarqube_token", &token).await;
     db::set_setting(pool, "sonarqube_url", sonar_url).await;
 
+    // Create security-focused quality profiles for each supported language
+    provision_security_profiles(pool, sonar_url, &auth_password, &client).await;
+
     Ok(())
+}
+
+/// Creates "Watchtower Security" quality profiles by copying "Sonar way" and activating
+/// all security/OWASP/CWE-tagged rules. Skips languages where the profile already exists.
+/// Only sets the default quality_profile setting if the user hasn't already configured one.
+async fn provision_security_profiles(pool: &DbPool, sonar_url: &str, password: &str, client: &reqwest::Client) {
+    const PROFILE_NAME: &str = "Watchtower Security";
+    const LANGUAGES: &[&str] = &["js", "ts", "py", "java", "cs", "css", "web", "kotlin", "ruby", "go", "php"];
+    const SECURITY_TAGS: &[&str] = &["security", "owasp", "cwe", "vulnerability", "injection", "xss", "csrf", "sans-top25"];
+
+    // Fetch all existing profiles
+    let existing_resp = client
+        .get(format!("{}/api/qualityprofiles/search", sonar_url))
+        .basic_auth("admin", Some(password))
+        .send()
+        .await;
+
+    let existing_profiles: Vec<(String, String)> = match existing_resp {
+        Ok(r) => {
+            if let Ok(body) = r.json::<serde_json::Value>().await {
+                body["profiles"].as_array().unwrap_or(&vec![]).iter().map(|p| {
+                    let name = p["name"].as_str().unwrap_or("").to_string();
+                    let lang = p["language"].as_str().unwrap_or("").to_string();
+                    (name, lang)
+                }).collect()
+            } else {
+                vec![]
+            }
+        }
+        Err(_) => vec![],
+    };
+
+    // Find which languages have a "Sonar way" base profile available
+    let sonar_way_langs: Vec<String> = existing_profiles.iter()
+        .filter(|(name, _)| name == "Sonar way")
+        .map(|(_, lang)| lang.clone())
+        .collect();
+
+    let mut created_any = false;
+
+    for lang in LANGUAGES {
+        // Skip if SonarQube doesn't have this language installed
+        if !sonar_way_langs.iter().any(|l| l == lang) {
+            continue;
+        }
+        // Skip if "Watchtower Security" already exists for this language
+        if existing_profiles.iter().any(|(name, l)| name == PROFILE_NAME && l == lang) {
+            continue;
+        }
+
+        // Copy "Sonar way" → "Watchtower Security" using name + language
+        let copy_resp = client
+            .post(format!("{}/api/qualityprofiles/copy", sonar_url))
+            .basic_auth("admin", Some(password))
+            .form(&[
+                ("fromName", "Sonar way"),
+                ("toName", PROFILE_NAME),
+                ("language", lang),
+            ])
+            .send()
+            .await;
+
+        let new_key = match copy_resp {
+            Ok(r) if r.status().is_success() => {
+                if let Ok(body) = r.json::<serde_json::Value>().await {
+                    body["key"].as_str().unwrap_or("").to_string()
+                } else { continue; }
+            }
+            _ => continue,
+        };
+
+        if new_key.is_empty() { continue; }
+
+        // Activate all rules matching security tags on the new profile
+        for tag in SECURITY_TAGS {
+            let _ = client
+                .post(format!("{}/api/qualityprofiles/activate_rules", sonar_url))
+                .basic_auth("admin", Some(password))
+                .form(&[
+                    ("targetKey", new_key.as_str()),
+                    ("tags", tag),
+                    ("activation", "false"), // activate only those not yet active
+                ])
+                .send()
+                .await;
+        }
+
+        created_any = true;
+    }
+
+    // Only set as the active profile if the user hasn't configured one already
+    if created_any {
+        let current_qp = db::get_setting(pool, "sonarqube_quality_profile").await;
+        if current_qp.is_empty() {
+            db::set_setting(pool, "sonarqube_quality_profile", PROFILE_NAME).await;
+        }
+    }
 }

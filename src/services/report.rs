@@ -1,4 +1,5 @@
 use crate::db::DbPool;
+use crate::models::PdfExportOptions;
 
 fn compute_score(critical: i64, high: i64, medium: i64, low: i64, _info: i64) -> i64 {
     let deductions = critical * 15 + high * 8 + medium * 3 + low;
@@ -41,8 +42,8 @@ pub async fn generate_html_report(pool: &DbPool, scan_job_id: i64) -> Result<Str
     .map_err(|e| e.to_string())?
     .ok_or("Scan job not found")?;
 
-    let findings: Vec<(String, String, String, Option<String>, Option<String>, Option<i64>, Option<String>, Option<f64>)> = sqlx::query_as(
-        "SELECT tool, severity, title, description, file_path, line_number, cwe_id, cvss_score
+    let findings: Vec<(String, String, String, Option<String>, Option<String>, Option<i64>, Option<String>, Option<f64>, Option<String>)> = sqlx::query_as(
+        "SELECT tool, severity, title, description, file_path, line_number, cwe_id, cvss_score, issue_type
          FROM findings WHERE scan_job_id = ? ORDER BY
          CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END"
     )
@@ -118,6 +119,7 @@ pub async fn generate_html_report(pool: &DbPool, scan_job_id: i64) -> Result<Str
                 <td>{}</td>
                 <td>{}</td>
                 <td>{}</td>
+                <td>{}</td>
             </tr>"#,
             sev_color,
             f.1.to_uppercase(),
@@ -125,6 +127,7 @@ pub async fn generate_html_report(pool: &DbPool, scan_job_id: i64) -> Result<Str
             ammonia::clean(&f.2),
             ammonia::clean(f.4.as_deref().unwrap_or("-")),
             ammonia::clean(f.6.as_deref().unwrap_or("-")),
+            ammonia::clean(f.8.as_deref().unwrap_or("-")),
         ));
     }
 
@@ -193,7 +196,7 @@ pub async fn generate_html_report(pool: &DbPool, scan_job_id: i64) -> Result<Str
 
         <table>
             <thead>
-                <tr><th>Severity</th><th>Tool</th><th>Title</th><th>File</th><th>CWE</th></tr>
+                <tr><th>Severity</th><th>Tool</th><th>Title</th><th>File</th><th>CWE</th><th>Type</th></tr>
             </thead>
             <tbody>
                 {findings}
@@ -246,7 +249,7 @@ pub async fn generate_html_report(pool: &DbPool, scan_job_id: i64) -> Result<Str
 }
 
 #[allow(clippy::type_complexity)]
-pub async fn generate_pdf_report(pool: &DbPool, scan_job_id: i64) -> Result<String, String> {
+pub async fn generate_pdf_report(pool: &DbPool, scan_job_id: i64, opts: &PdfExportOptions) -> Result<String, String> {
     let job = sqlx::query_as::<_, (String, String, String, String, Option<String>, Option<i64>, i64, i64, i64, i64, i64, i64, Option<String>)>(
         "SELECT scan_type, target, target_source, status, completed_at, duration_seconds,
                 total_findings, critical_count, high_count, medium_count, low_count, info_count, tools_run
@@ -258,8 +261,8 @@ pub async fn generate_pdf_report(pool: &DbPool, scan_job_id: i64) -> Result<Stri
     .map_err(|e| e.to_string())?
     .ok_or("Scan job not found")?;
 
-    let findings: Vec<(String, String, String, Option<String>, Option<String>, Option<i64>, Option<String>, Option<f64>)> = sqlx::query_as(
-        "SELECT tool, severity, title, description, file_path, line_number, cwe_id, cvss_score
+    let all_findings: Vec<(String, String, String, Option<String>, Option<String>, Option<i64>, Option<String>, Option<f64>, Option<String>)> = sqlx::query_as(
+        "SELECT tool, severity, title, description, file_path, line_number, cwe_id, cvss_score, issue_type
          FROM findings WHERE scan_job_id = ? ORDER BY
          CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END"
     )
@@ -267,6 +270,31 @@ pub async fn generate_pdf_report(pool: &DbPool, scan_job_id: i64) -> Result<Stri
     .fetch_all(pool)
     .await
     .map_err(|e| e.to_string())?;
+
+    // Apply export filters
+    let tool_f   = opts.tool_filter.as_deref().unwrap_or("all");
+    let sev_f    = opts.severity_filter.as_deref().unwrap_or("all");
+    let itype_f  = opts.issue_type_filter.as_deref().unwrap_or("all");
+    let search_f = opts.search_query.as_deref().unwrap_or("").to_lowercase();
+
+    let findings: Vec<_> = all_findings.into_iter().filter(|f| {
+        (tool_f  == "all" || f.0 == tool_f) &&
+        (sev_f   == "all" || f.1 == sev_f) &&
+        (itype_f == "all" || f.8.as_deref().unwrap_or("") == itype_f) &&
+        (search_f.is_empty() ||
+            f.2.to_lowercase().contains(&search_f) ||
+            f.0.to_lowercase().contains(&search_f) ||
+            f.4.as_deref().unwrap_or("").to_lowercase().contains(&search_f))
+    }).collect();
+
+    // Determine active columns ("" = all)
+    const ALL_COLS: &[&str] = &["severity","tool","title","file","cwe","type","cvss","description"];
+    let active_cols: Vec<&str> = match &opts.columns {
+        Some(cols) if !cols.is_empty() =>
+            ALL_COLS.iter().filter(|&&c| cols.iter().any(|s| s == c)).copied().collect(),
+        _ => ALL_COLS.to_vec(),
+    };
+    let col = |name: &str| -> bool { active_cols.contains(&name) };
 
     let duration_str = job.5.map(|d| format!("{}m {}s", d / 60, d % 60)).unwrap_or("N/A".into());
 
@@ -327,6 +355,17 @@ pub async fn generate_pdf_report(pool: &DbPool, scan_job_id: i64) -> Result<Stri
         ));
     }
 
+    // Dynamic findings table header
+    let mut header_cells = String::new();
+    if col("severity")    { header_cells.push_str("<th style=\"width:70px\">Severity</th>"); }
+    if col("tool")        { header_cells.push_str("<th style=\"width:90px\">Tool</th>"); }
+    if col("title")       { header_cells.push_str("<th>Title</th>"); }
+    if col("description") { header_cells.push_str("<th>Description</th>"); }
+    if col("file")        { header_cells.push_str("<th>File</th>"); }
+    if col("cwe")         { header_cells.push_str("<th style=\"width:70px\">CWE</th>"); }
+    if col("type")        { header_cells.push_str("<th style=\"width:100px\">Type</th>"); }
+    if col("cvss")        { header_cells.push_str("<th style=\"width:55px\">CVSS</th>"); }
+
     // Findings rows
     let mut findings_rows = String::new();
     for f in &findings {
@@ -338,27 +377,21 @@ pub async fn generate_pdf_report(pool: &DbPool, scan_job_id: i64) -> Result<Stri
             _          => ("#546e7a", "INFO"),
         };
         let file = f.4.as_deref().unwrap_or("-");
-        // Truncate long file paths sensibly
-        let file_display = if file.len() > 60 {
-            format!("...{}", &file[file.len()-57..])
-        } else {
-            file.to_string()
-        };
-        findings_rows.push_str(&format!(
-            r#"<tr>
-                <td><span class="sev-badge" style="background:{sev_bg}">{sev_text}</span></td>
-                <td class="tool-cell">{tool}</td>
-                <td class="title-cell">{title}</td>
-                <td class="file-cell">{file}</td>
-                <td>{cwe}</td>
-            </tr>"#,
-            sev_bg  = sev_bg,
-            sev_text = sev_text,
-            tool    = ammonia::clean(&f.0),
-            title   = ammonia::clean(&f.2),
-            file    = ammonia::clean(&file_display),
-            cwe     = ammonia::clean(f.6.as_deref().unwrap_or("-")),
-        ));
+        let file_display = if file.len() > 60 { format!("...{}", &file[file.len()-57..]) } else { file.to_string() };
+        let desc = f.3.as_deref().unwrap_or("-");
+        let desc_display = if desc.len() > 200 { format!("{}...", &desc[..200]) } else { desc.to_string() };
+
+        let mut row = "<tr>".to_string();
+        if col("severity")    { row.push_str(&format!("<td><span class=\"sev-badge\" style=\"background:{sev_bg}\">{sev_text}</span></td>")); }
+        if col("tool")        { row.push_str(&format!("<td class=\"tool-cell\">{}</td>", ammonia::clean(&f.0))); }
+        if col("title")       { row.push_str(&format!("<td class=\"title-cell\">{}</td>", ammonia::clean(&f.2))); }
+        if col("description") { row.push_str(&format!("<td class=\"desc-cell\">{}</td>", ammonia::clean(&desc_display))); }
+        if col("file")        { row.push_str(&format!("<td class=\"file-cell\">{}</td>", ammonia::clean(&file_display))); }
+        if col("cwe")         { row.push_str(&format!("<td>{}</td>", ammonia::clean(f.6.as_deref().unwrap_or("-")))); }
+        if col("type")        { row.push_str(&format!("<td>{}</td>", ammonia::clean(f.8.as_deref().unwrap_or("-")))); }
+        if col("cvss")        { row.push_str(&format!("<td>{}</td>", f.7.map(|v| format!("{:.1}", v)).unwrap_or("-".into()))); }
+        row.push_str("</tr>");
+        findings_rows.push_str(&row);
     }
 
     let grade_color_pdf = match overall_grade {
@@ -461,7 +494,7 @@ pub async fn generate_pdf_report(pool: &DbPool, scan_job_id: i64) -> Result<Stri
 
 <div class="section-title">Findings ({total} total)</div>
 <table class="findings-table">
-  <thead><tr><th style="width:70px">Severity</th><th style="width:90px">Tool</th><th>Title</th><th>File</th><th style="width:70px">CWE</th></tr></thead>
+  <thead><tr>{header_cells}</tr></thead>
   <tbody>{findings_rows}</tbody>
 </table>
 
@@ -484,6 +517,7 @@ pub async fn generate_pdf_report(pool: &DbPool, scan_job_id: i64) -> Result<Stri
         tools         = job.12.as_deref().unwrap_or("N/A"),
         tool_rows     = tool_rows,
         findings_rows = findings_rows,
+        header_cells  = header_cells,
     );
 
     // Write print-friendly HTML to a temp file for wkhtmltopdf

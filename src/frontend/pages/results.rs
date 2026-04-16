@@ -16,11 +16,89 @@ pub fn ResultsPage() -> impl IntoView {
     let (status_data, _set_status_data) = create_signal(None::<ScanStatusResponse>);
     let (severity_filter, set_severity_filter) = create_signal("all".to_string());
     let (tool_filter, set_tool_filter) = create_signal("all".to_string());
+    let (issue_type_filter, set_issue_type_filter) = create_signal("all".to_string());
     let (search_query, set_search_query) = create_signal(String::new());
     let (show_log, set_show_log) = create_signal(false);
-    let (scan_completed, _set_scan_completed) = create_signal(false);
+    let (_scan_completed, _set_scan_completed) = create_signal(false);
 
     let advanced_mode = use_context::<ReadSignal<bool>>().unwrap_or_else(|| create_signal(false).0);
+
+    // PDF export signals
+    let (show_pdf_opts,    set_show_pdf_opts)    = create_signal(false);
+    let (col_severity,     set_col_severity)     = create_signal(true);
+    let (col_tool,         set_col_tool)         = create_signal(true);
+    let (col_title,        set_col_title)        = create_signal(true);
+    let (col_file,         set_col_file)         = create_signal(true);
+    let (col_cwe,          set_col_cwe)          = create_signal(true);
+    let (col_issue_type,   set_col_issue_type)   = create_signal(true);
+    let (col_cvss,         set_col_cvss)         = create_signal(false);
+    let (col_description,  set_col_description)  = create_signal(false);
+    let (pdf_tool_scope,   set_pdf_tool_scope)   = create_signal("all".to_string());
+    let (pdf_type_scope,   set_pdf_type_scope)   = create_signal("all".to_string());
+    let (pdf_busy,         set_pdf_busy)         = create_signal(false);
+    let (pdf_msg,          set_pdf_msg)          = create_signal(Option::<(bool, String)>::None);
+
+    let do_generate_pdf = {
+        let scan_id = scan_id;
+        move |_: leptos::ev::MouseEvent| {
+            let id = scan_id();
+            let mut cols: Vec<String> = vec![];
+            if col_severity.get_untracked()    { cols.push("severity".into()); }
+            if col_tool.get_untracked()        { cols.push("tool".into()); }
+            if col_title.get_untracked()       { cols.push("title".into()); }
+            if col_file.get_untracked()        { cols.push("file".into()); }
+            if col_cwe.get_untracked()         { cols.push("cwe".into()); }
+            if col_issue_type.get_untracked()  { cols.push("type".into()); }
+            if col_cvss.get_untracked()        { cols.push("cvss".into()); }
+            if col_description.get_untracked() { cols.push("description".into()); }
+            let opts = crate::models::PdfExportOptions {
+                tool_filter:        Some(pdf_tool_scope.get_untracked()),
+                severity_filter:    Some(severity_filter.get_untracked()),
+                issue_type_filter:  Some(pdf_type_scope.get_untracked()),
+                search_query: {
+                    let q = search_query.get_untracked();
+                    if q.is_empty() { None } else { Some(q) }
+                },
+                columns: Some(cols),
+            };
+            set_pdf_busy.set(true);
+            set_pdf_msg.set(None);
+            #[cfg(feature = "hydrate")]
+            {
+                wasm_bindgen_futures::spawn_local(async move {
+                    match gloo_net::http::Request::post(&format!("/api/reports/{}/generate-pdf", id))
+                        .json(&opts)
+                    {
+                        Ok(req) => match req.send().await {
+                            Ok(resp) if resp.ok() => {
+                                set_pdf_busy.set(false);
+                                set_pdf_msg.set(Some((false, "PDF ready — downloading…".into())));
+                                if let Some(window) = web_sys::window() {
+                                    let _ = window.open_with_url_and_target(
+                                        &format!("/api/reports/{}/download-pdf", id), "_blank");
+                                }
+                            }
+                            Ok(resp) => {
+                                let msg = resp.text().await.unwrap_or("Server error".into());
+                                set_pdf_busy.set(false);
+                                set_pdf_msg.set(Some((true, msg)));
+                            }
+                            Err(e) => {
+                                set_pdf_busy.set(false);
+                                set_pdf_msg.set(Some((true, e.to_string())));
+                            }
+                        },
+                        Err(e) => {
+                            set_pdf_busy.set(false);
+                            set_pdf_msg.set(Some((true, e.to_string())));
+                        }
+                    }
+                });
+            }
+            #[cfg(not(feature = "hydrate"))]
+            { let _ = opts; }
+        }
+    };
 
     let findings = create_resource(scan_id, |id| async move {
         fetch_findings(id).await
@@ -28,6 +106,45 @@ pub fn ResultsPage() -> impl IntoView {
 
     let scores = create_resource(scan_id, |id| async move {
         fetch_scores(id).await
+    });
+
+    // Reactive memo: combines findings resource with all filter signals so
+    // any filter change reliably triggers a re-render without re-fetching.
+    let filtered_findings = create_memo(move |_| {
+        let sev   = severity_filter.get();
+        let tool  = tool_filter.get();
+        let itype = issue_type_filter.get();
+        let query = search_query.get().to_lowercase();
+        let adv   = advanced_mode.get();
+        findings.get()
+            .and_then(|r| r.ok())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|f| {
+                (adv || !RESTRICTED_TOOLS.contains(&f.tool.as_str())) &&
+                (sev   == "all" || f.severity == sev) &&
+                (tool  == "all" || f.tool == tool) &&
+                (itype == "all" || f.issue_type.as_deref().unwrap_or("") == itype) &&
+                (query.is_empty()
+                    || f.title.to_lowercase().contains(&query)
+                    || f.tool.to_lowercase().contains(&query)
+                    || f.file_path.as_deref().unwrap_or("").to_lowercase().contains(&query))
+            })
+            .collect::<Vec<_>>()
+    });
+
+    let available_tools = create_memo(move |_| {
+        let adv = advanced_mode.get();
+        let mut tools: Vec<String> = findings.get()
+            .and_then(|r| r.ok())
+            .unwrap_or_default()
+            .iter()
+            .map(|f| f.tool.clone())
+            .filter(|t| adv || !RESTRICTED_TOOLS.contains(&t.as_str()))
+            .collect();
+        tools.sort();
+        tools.dedup();
+        tools
     });
 
     // Poll for status + logs
@@ -44,8 +161,7 @@ pub fn ResultsPage() -> impl IntoView {
                         let done = s.status == "completed" || s.status == "failed";
                         set_status.set(Some(s));
                         if done {
-                            // Refetch scores and findings the first time we detect completion
-                            if !scan_completed.get_untracked() {
+                            if !_scan_completed.get_untracked() {
                                 _set_scan_completed.set(true);
                                 scores.refetch();
                                 findings.refetch();
@@ -86,23 +202,23 @@ pub fn ResultsPage() -> impl IntoView {
                         })}
                         <div class="scan-action-buttons">
                             {(s.status == "running").then(|| {
-                                let sid = scan_id();
+                                let _sid = scan_id();
                                 view! {
                                     <button class="btn-scan-action btn-stop" on:click=move |_| {
                                         #[cfg(feature = "hydrate")]
                                         wasm_bindgen_futures::spawn_local(async move {
-                                            let _ = post_scan_action(sid, "stop").await;
+                                            let _ = post_scan_action(_sid, "stop").await;
                                         });
                                     }>"⏹ Stop"</button>
                                 }
                             })}
                             {(s.status == "stopped").then(|| {
-                                let sid = scan_id();
+                                let _sid = scan_id();
                                 view! {
                                     <button class="btn-scan-action btn-resume" on:click=move |_| {
                                         #[cfg(feature = "hydrate")]
                                         wasm_bindgen_futures::spawn_local(async move {
-                                            let _ = post_scan_action(sid, "resume").await;
+                                            let _ = post_scan_action(_sid, "resume").await;
                                         });
                                     }>"▶ Resume"</button>
                                 }
@@ -238,35 +354,27 @@ pub fn ResultsPage() -> impl IntoView {
                     <select class="form-control filter-select"
                         on:change=move |ev| set_severity_filter.set(event_target_value(&ev))>
                         <option value="all">"All Severities"</option>
-                        <option value="critical">"Critical"</option>
-                        <option value="high">"High"</option>
-                        <option value="medium">"Medium"</option>
-                        <option value="low">"Low"</option>
-                        <option value="info">"Info"</option>
+                        <option value="critical">"🔴 Critical"</option>
+                        <option value="high">"🟠 High"</option>
+                        <option value="medium">"🟡 Medium"</option>
+                        <option value="low">"🔵 Low"</option>
+                        <option value="info">"⚪ Info"</option>
                     </select>
-                    <Suspense fallback=move || view! { <span></span> }>
-                        {move || findings.get().map(|data| match data {
-                            Ok(ref fl) => {
-                                let adv = advanced_mode.get();
-                                let mut tools: Vec<String> = fl.iter()
-                                    .map(|f| f.tool.clone())
-                                    .filter(|t| adv || !RESTRICTED_TOOLS.contains(&t.as_str()))
-                                    .collect();
-                                tools.sort();
-                                tools.dedup();
-                                view! {
-                                    <select class="form-control filter-select"
-                                        on:change=move |ev| set_tool_filter.set(event_target_value(&ev))>
-                                        <option value="all">"All Tools"</option>
-                                        {tools.into_iter().map(|t| view! {
-                                            <option value={t.clone()}>{t}</option>
-                                        }).collect_view()}
-                                    </select>
-                                }.into_view()
-                            }
-                            Err(_) => view! { <span></span> }.into_view(),
-                        })}
-                    </Suspense>
+                    <select class="form-control filter-select"
+                        on:change=move |ev| set_tool_filter.set(event_target_value(&ev))>
+                        <option value="all">"All Tools"</option>
+                        {move || available_tools.get().into_iter().map(|t| view! {
+                            <option value={t.clone()}>{t}</option>
+                        }).collect_view()}
+                    </select>
+                    <select class="form-control filter-select"
+                        on:change=move |ev| set_issue_type_filter.set(event_target_value(&ev))>
+                        <option value="all">"All Types"</option>
+                        <option value="Vulnerability">"Vulnerability"</option>
+                        <option value="Bug">"Bug"</option>
+                        <option value="Code Smell">"Code Smell"</option>
+                        <option value="Security Hotspot">"Security Hotspot"</option>
+                    </select>
                     <input type="text" class="form-control filter-search"
                         placeholder="Search findings..."
                         on:input=move |ev| set_search_query.set(event_target_value(&ev))/>
@@ -275,64 +383,161 @@ pub fn ResultsPage() -> impl IntoView {
 
             <Suspense fallback=move || view! { <p>"Loading findings..."</p> }>
                 {move || findings.get().map(|data| match data {
-                    Ok(finding_list) => {
-                        let sev = severity_filter.get();
-                        let tool = tool_filter.get();
-                        let query = search_query.get().to_lowercase();
-                        let filtered: Vec<_> = finding_list.iter().filter(|f| {
-                            (sev == "all" || f.severity == sev) &&
-                            (tool == "all" || f.tool == tool) &&
-                            (query.is_empty() || f.title.to_lowercase().contains(&query)
-                                || f.tool.to_lowercase().contains(&query)
-                                || f.file_path.as_deref().unwrap_or("").to_lowercase().contains(&query))
-                        }).cloned().collect();
-
-                        let count = filtered.len();
-
+                    Ok(_) => {
                         view! {
-                            <div class="findings-count">{count}" finding(s) shown"</div>
-                            <div class="findings-list">
-                                {filtered.into_iter().map(|finding| {
-                                    let cvss_class = finding.cvss_score.map(|v| {
-                                        if v >= 9.0 { "cvss-critical" }
-                                        else if v >= 7.0 { "cvss-high" }
-                                        else if v >= 4.0 { "cvss-medium" }
-                                        else { "cvss-low" }
-                                    }).unwrap_or("");
-
-                                    view! {
-                                        <div class=format!("finding-card finding-sev-{}", finding.severity)>
-                                            <div class="finding-card-header">
-                                                <SeverityBadge severity=finding.severity.clone()/>
-                                                <span class="finding-tool-badge">{finding.tool.clone()}</span>
-                                                <span class="finding-title">{finding.title.clone()}</span>
-                                                {finding.cvss_score.map(|v| view! {
-                                                    <span class=format!("finding-cvss {}", cvss_class)>
-                                                        "CVSS: " {format!("{:.1}", v)}
-                                                    </span>
-                                                })}
+                            // ── PDF export panel ──────────────────────────────
+                            <div class="pdf-export-section">
+                                <button class="pdf-export-toggle"
+                                    on:click=move |_| set_show_pdf_opts.update(|v| *v = !*v)>
+                                    {move || if show_pdf_opts.get() { "▲ PDF Options" } else { "⚙ PDF Export Options" }}
+                                </button>
+                                {move || show_pdf_opts.get().then(|| view! {
+                                    <div class="pdf-export-panel">
+                                        <p class="pdf-hint">
+                                            "The PDF will include findings matching the active filters above. "
+                                            "Choose additional scope and which columns to output."
+                                        </p>
+                                        <div class="pdf-option-groups">
+                                            // Tool scope
+                                            <div class="pdf-option-group">
+                                                <div class="pdf-option-label">"PDF Tool Scope"</div>
+                                                <select class="form-control filter-select"
+                                                    on:change=move |ev| set_pdf_tool_scope.set(event_target_value(&ev))>
+                                                    <option value="all">"All Tools"</option>
+                                                    {move || available_tools.get().into_iter().map(|t| view! {
+                                                        <option value={t.clone()}>{t}</option>
+                                                    }).collect_view()}
+                                                </select>
                                             </div>
-                                            {finding.description.clone().map(|desc| view! {
-                                                <div class="finding-desc">{desc}</div>
-                                            })}
-                                            <div class="finding-meta">
-                                                {finding.file_path.clone().map(|fp| view! {
-                                                    <span class="finding-file">"📄 " {fp}
-                                                        {finding.line_number.map(|ln| format!(":{}", ln))}
-                                                    </span>
-                                                })}
-                                                {finding.cwe_id.clone().map(|cwe| view! {
-                                                    <a href=format!("https://cwe.mitre.org/data/definitions/{}.html",
-                                                        cwe.trim_start_matches("CWE-"))
-                                                        target="_blank" class="cwe-link">{cwe}</a>
-                                                })}
-                                                {finding.recommendation.clone().map(|rec| view! {
-                                                    <span class="finding-rec">"💡 " {rec}</span>
-                                                })}
+                                            // Issue type scope
+                                            <div class="pdf-option-group">
+                                                <div class="pdf-option-label">"PDF Type Scope"</div>
+                                                <select class="form-control filter-select"
+                                                    on:change=move |ev| set_pdf_type_scope.set(event_target_value(&ev))>
+                                                    <option value="all">"All Types"</option>
+                                                    <option value="Vulnerability">"Vulnerability"</option>
+                                                    <option value="Bug">"Bug"</option>
+                                                    <option value="Code Smell">"Code Smell"</option>
+                                                    <option value="Security Hotspot">"Security Hotspot"</option>
+                                                </select>
+                                            </div>
+                                            // Column selection
+                                            <div class="pdf-option-group">
+                                                <div class="pdf-option-label">"Columns"</div>
+                                                <div class="pdf-col-checks">
+                                                    <label class="pdf-col-check">
+                                                        <input type="checkbox" checked=true
+                                                            on:change=move |ev| set_col_severity.set(checkbox_checked(&ev))/>
+                                                        " Severity"
+                                                    </label>
+                                                    <label class="pdf-col-check">
+                                                        <input type="checkbox" checked=true
+                                                            on:change=move |ev| set_col_tool.set(checkbox_checked(&ev))/>
+                                                        " Tool"
+                                                    </label>
+                                                    <label class="pdf-col-check">
+                                                        <input type="checkbox" checked=true
+                                                            on:change=move |ev| set_col_title.set(checkbox_checked(&ev))/>
+                                                        " Title"
+                                                    </label>
+                                                    <label class="pdf-col-check">
+                                                        <input type="checkbox" checked=true
+                                                            on:change=move |ev| set_col_file.set(checkbox_checked(&ev))/>
+                                                        " File"
+                                                    </label>
+                                                    <label class="pdf-col-check">
+                                                        <input type="checkbox" checked=true
+                                                            on:change=move |ev| set_col_cwe.set(checkbox_checked(&ev))/>
+                                                        " CWE"
+                                                    </label>
+                                                    <label class="pdf-col-check">
+                                                        <input type="checkbox" checked=true
+                                                            on:change=move |ev| set_col_issue_type.set(checkbox_checked(&ev))/>
+                                                        " Type"
+                                                    </label>
+                                                    <label class="pdf-col-check">
+                                                        <input type="checkbox" checked=false
+                                                            on:change=move |ev| set_col_cvss.set(checkbox_checked(&ev))/>
+                                                        " CVSS"
+                                                    </label>
+                                                    <label class="pdf-col-check">
+                                                        <input type="checkbox" checked=false
+                                                            on:change=move |ev| set_col_description.set(checkbox_checked(&ev))/>
+                                                        " Description"
+                                                    </label>
+                                                </div>
                                             </div>
                                         </div>
+                                        <div class="pdf-actions">
+                                            <button class="btn-generate-pdf"
+                                                disabled=move || pdf_busy.get()
+                                                on:click=do_generate_pdf.clone()>
+                                                {move || if pdf_busy.get() { "⏳ Generating…" } else { "📄 Generate & Download PDF" }}
+                                            </button>
+                                            {move || pdf_msg.get().map(|(_is_err, msg)| view! {
+                                                <span class=if _is_err { "pdf-msg pdf-msg-err" } else { "pdf-msg pdf-msg-ok" }>
+                                                    {msg}
+                                                </span>
+                                            })}
+                                        </div>
+                                    </div>
+                                })}
+                            </div>
+
+                            // ── Findings list ─────────────────────────────────
+                            <div class="findings-count">
+                                {move || filtered_findings.get().len()}
+                                " finding(s) shown"
+                            </div>
+                            <div class="findings-list">
+                                <For
+                                    each=move || filtered_findings.get()
+                                    key=|f| f.id
+                                    children=|finding| {
+                                        let cvss_class = finding.cvss_score.map(|v| {
+                                            if v >= 9.0 { "cvss-critical" }
+                                            else if v >= 7.0 { "cvss-high" }
+                                            else if v >= 4.0 { "cvss-medium" }
+                                            else { "cvss-low" }
+                                        }).unwrap_or("");
+                                        view! {
+                                            <div class=format!("finding-card finding-sev-{}", finding.severity)>
+                                                <div class="finding-card-header">
+                                                    <SeverityBadge severity=finding.severity.clone()/>
+                                                    <span class="finding-tool-badge">{finding.tool.clone()}</span>
+                                                    {finding.issue_type.clone().map(|it| view! {
+                                                        <span class=format!("finding-type-badge finding-type-{}",
+                                                            it.to_lowercase().replace(' ', "-"))>{it}</span>
+                                                    })}
+                                                    <span class="finding-title">{finding.title.clone()}</span>
+                                                    {finding.cvss_score.map(|v| view! {
+                                                        <span class=format!("finding-cvss {}", cvss_class)>
+                                                            "CVSS: " {format!("{:.1}", v)}
+                                                        </span>
+                                                    })}
+                                                </div>
+                                                {finding.description.clone().map(|desc| view! {
+                                                    <div class="finding-desc">{desc}</div>
+                                                })}
+                                                <div class="finding-meta">
+                                                    {finding.file_path.clone().map(|fp| view! {
+                                                        <span class="finding-file">"📄 " {fp}
+                                                            {finding.line_number.map(|ln| format!(":{}", ln))}
+                                                        </span>
+                                                    })}
+                                                    {finding.cwe_id.clone().map(|cwe| view! {
+                                                        <a href=format!("https://cwe.mitre.org/data/definitions/{}.html",
+                                                            cwe.trim_start_matches("CWE-"))
+                                                            target="_blank" class="cwe-link">{cwe}</a>
+                                                    })}
+                                                    {finding.recommendation.clone().map(|rec| view! {
+                                                        <span class="finding-rec">"💡 " {rec}</span>
+                                                    })}
+                                                </div>
+                                            </div>
+                                        }
                                     }
-                                }).collect_view()}
+                                />
                             </div>
                         }.into_view()
                     }
@@ -369,6 +574,19 @@ pub fn ResultsPage() -> impl IntoView {
             })}
         </div>
     }
+}
+
+fn checkbox_checked(ev: &leptos::ev::Event) -> bool {
+    #[cfg(feature = "hydrate")]
+    {
+        use wasm_bindgen::JsCast;
+        ev.target()
+            .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+            .map(|e| e.checked())
+            .unwrap_or(false)
+    }
+    #[cfg(not(feature = "hydrate"))]
+    { let _ = ev; false }
 }
 
 fn event_target_value(ev: &leptos::ev::Event) -> String {
