@@ -215,6 +215,25 @@ body {
 .badge-status-failed { background: rgba(220, 53, 69, 0.2); color: var(--critical); }
 .badge-status-stopped { background: rgba(255, 193, 7, 0.2); color: #ffc107; }
 .badge-category { background: rgba(108, 117, 125, 0.2); color: var(--text-secondary); }
+.badge-restricted { background: rgba(255, 140, 0, 0.2); color: #ff8c00; }
+
+/* ── Advanced mode banner ── */
+.advanced-mode-banner {
+    background: rgba(255, 140, 0, 0.12);
+    border: 1px solid rgba(255, 140, 0, 0.4);
+    border-radius: 6px;
+    color: #ff8c00;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    padding: 6px 14px;
+    margin-bottom: 16px;
+    text-align: center;
+}
+
+/* ── Restricted tool styling ── */
+.tool-restricted { border-color: rgba(255, 140, 0, 0.3) !important; }
+.checkbox-label.restricted-tool { color: #ff8c00; }
 
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
@@ -383,6 +402,32 @@ body {
     font-size: 10px;
     color: var(--accent);
     text-transform: uppercase;
+}
+.tool-tag.tool-tag-skipped {
+    background: rgba(128, 128, 128, 0.1);
+    color: var(--text-muted);
+    text-decoration: line-through;
+    opacity: 0.45;
+}
+.compat-banner {
+    padding: 10px 14px;
+    background: rgba(59, 130, 246, 0.08);
+    border: 1px solid rgba(59, 130, 246, 0.22);
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+.checkbox-label.tool-incompatible {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.checkbox-label.tool-incompatible:hover { border-color: var(--border); }
+.tool-compat-note {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-style: italic;
+    margin-left: auto;
 }
 
 /* ── Buttons ── */
@@ -990,6 +1035,104 @@ body {
     font-size: 13px;
 }
 
+}
+
+/* ── PDF Export Panel ───────────────────────────────── */
+.pdf-export-section {
+    border-top: 1px solid rgba(255,255,255,0.06);
+    padding: 12px 0 16px;
+    margin-bottom: 12px;
+}
+
+.pdf-export-toggle {
+    background: rgba(255,68,68,0.10);
+    border: 1px solid rgba(255,68,68,0.25);
+    color: var(--accent);
+    padding: 5px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.pdf-export-toggle:hover { background: rgba(255,68,68,0.20); }
+
+.pdf-export-panel {
+    margin-top: 12px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.pdf-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 14px;
+}
+
+.pdf-option-groups {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 14px;
+}
+
+.pdf-option-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 160px;
+}
+
+.pdf-option-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+}
+
+.pdf-col-checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+}
+
+.pdf-col-check {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--text-secondary);
+}
+.pdf-col-check input { accent-color: var(--accent); cursor: pointer; }
+
+.pdf-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.btn-generate-pdf {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 7px 18px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+.btn-generate-pdf:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn-generate-pdf:hover:not(:disabled) { opacity: 0.85; }
+
+.pdf-msg { font-size: 12px; }
+.pdf-msg-ok  { color: var(--success, #20c997); }
+.pdf-msg-err { color: var(--critical, #dc3545); }
+
 .findings-count {
     font-size: 13px;
     color: var(--text-muted);
@@ -1038,6 +1181,37 @@ body {
     background: rgba(255, 68, 68, 0.12);
     color: var(--accent);
     text-transform: uppercase;
+}
+
+.finding-type-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: rgba(100, 180, 255, 0.13);
+    color: #64b4ff;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.finding-type-badge.finding-type-vulnerability {
+    background: rgba(220, 53, 69, 0.12);
+    color: #ff6b7a;
+}
+
+.finding-type-badge.finding-type-bug {
+    background: rgba(253, 126, 20, 0.12);
+    color: #fd9244;
+}
+
+.finding-type-badge.finding-type-code-smell {
+    background: rgba(100, 180, 255, 0.13);
+    color: #64b4ff;
+}
+
+.finding-type-badge.finding-type-security-hotspot {
+    background: rgba(255, 193, 7, 0.12);
+    color: #ffc107;
 }
 
 .finding-title {

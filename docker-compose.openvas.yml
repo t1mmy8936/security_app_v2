@@ -1,0 +1,247 @@
+# ─── Greenbone Community Edition (OpenVAS) ───────────────────────────────────
+# Optional: run with:
+#   docker compose -f docker-compose.yml -f docker-compose.openvas.yml up -d
+#
+# First-time startup takes 10-20 minutes for feed sync.
+# After starting, configure in Watchtower Settings → OpenVAS:
+#   URL: http://gsad:80
+#   Username: admin
+#   Password: (set during first login at http://localhost:9392)
+#
+# NOTE: ospd-openvas and openvasd require Linux kernel capabilities.
+# This stack is intended for Linux Docker hosts. On Windows/Mac you must
+# use Docker Desktop with a Linux VM backend.
+
+services:
+  vulnerability-tests:
+    image: greenbone/vulnerability-tests
+    environment:
+      STORAGE_PATH: /var/lib/openvas/22.04/vt-data/nasl
+    volumes:
+      - vt_data_vol:/mnt
+    networks:
+      - watchtower-net
+
+  notus-data:
+    image: greenbone/notus-data
+    volumes:
+      - notus_data_vol:/mnt
+    networks:
+      - watchtower-net
+
+  scap-data:
+    image: greenbone/scap-data
+    volumes:
+      - scap_data_vol:/mnt
+    networks:
+      - watchtower-net
+
+  cert-bund-data:
+    image: greenbone/cert-bund-data
+    volumes:
+      - cert_data_vol:/mnt
+    networks:
+      - watchtower-net
+
+  dfn-cert-data:
+    image: greenbone/dfn-cert-data
+    volumes:
+      - cert_data_vol:/mnt
+    depends_on:
+      - cert-bund-data
+    networks:
+      - watchtower-net
+
+  data-objects:
+    image: greenbone/data-objects
+    volumes:
+      - data_objects_vol:/mnt
+    networks:
+      - watchtower-net
+
+  report-formats:
+    image: greenbone/report-formats
+    volumes:
+      - data_objects_vol:/mnt
+    depends_on:
+      - data-objects
+    networks:
+      - watchtower-net
+
+  gpg-data:
+    image: greenbone/gpg-data
+    volumes:
+      - gpg_data_vol:/mnt
+    networks:
+      - watchtower-net
+
+  redis-server:
+    image: greenbone/redis-server
+    restart: on-failure
+    volumes:
+      - redis_socket_vol:/run/redis/
+    networks:
+      - watchtower-net
+
+  pg-gvm:
+    image: greenbone/pg-gvm:stable
+    restart: on-failure
+    volumes:
+      - psql_data_vol:/var/lib/postgresql
+      - psql_socket_vol:/var/run/postgresql
+    networks:
+      - watchtower-net
+
+  gvmd:
+    image: greenbone/gvmd:stable
+    restart: on-failure
+    volumes:
+      - gvmd_data_vol:/var/lib/gvm
+      - scap_data_vol:/var/lib/gvm/scap-data/
+      - cert_data_vol:/var/lib/gvm/cert-data
+      - data_objects_vol:/var/lib/gvm/data-objects/gvmd
+      - vt_data_vol:/var/lib/openvas/plugins
+      - psql_data_vol:/var/lib/postgresql
+      - gvmd_socket_vol:/run/gvmd
+      - ospd_openvas_socket_vol:/run/ospd
+      - psql_socket_vol:/var/run/postgresql
+      - gpg_data_vol:/etc/openvas/gnupg
+      - notus_data_vol:/var/lib/notus
+    depends_on:
+      pg-gvm:
+        condition: service_started
+      scap-data:
+        condition: service_completed_successfully
+      cert-bund-data:
+        condition: service_completed_successfully
+      dfn-cert-data:
+        condition: service_completed_successfully
+      data-objects:
+        condition: service_completed_successfully
+      report-formats:
+        condition: service_completed_successfully
+      vulnerability-tests:
+        condition: service_completed_successfully
+      notus-data:
+        condition: service_completed_successfully
+      gpg-data:
+        condition: service_completed_successfully
+    networks:
+      - watchtower-net
+
+  gsa:
+    image: greenbone/gsa:stable
+    restart: on-failure
+    volumes:
+      - gvmd_socket_vol:/run/gvmd
+    depends_on:
+      - gvmd
+    networks:
+      - watchtower-net
+
+  configure-openvas:
+    image: greenbone/openvas-scanner:stable
+    volumes:
+      - openvas_data_vol:/mnt
+      - openvas_log_data_vol:/var/log/openvas
+    command:
+      - /bin/sh
+      - -c
+      - |
+        printf "table_driven_lsc = yes\nopenvasd_server = http://openvasd:9390\n" > /mnt/openvas.conf
+    networks:
+      - watchtower-net
+
+  openvasd:
+    image: greenbone/openvas-scanner:stable
+    restart: on-failure
+    environment:
+      OPENVASD_VT_DIR: /var/lib/openvas/plugins
+      GNUPGHOME: /etc/openvas/gnupg
+      LISTENING: 0.0.0.0:9390
+    volumes:
+      - vt_data_vol:/var/lib/openvas/plugins:ro
+      - notus_data_vol:/var/lib/notus:ro
+      - gpg_data_vol:/etc/openvas/gnupg:ro
+      - openvas_log_data_vol:/var/log/openvas
+    depends_on:
+      vulnerability-tests:
+        condition: service_completed_successfully
+      notus-data:
+        condition: service_completed_successfully
+      gpg-data:
+        condition: service_completed_successfully
+    networks:
+      - watchtower-net
+
+  ospd-openvas:
+    image: greenbone/ospd-openvas:stable
+    restart: on-failure
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+    command:
+      - ospd-openvas
+      - --config
+      - /etc/gvm/ospd-openvas.conf
+    volumes:
+      - gpg_data_vol:/etc/openvas/gnupg
+      - vt_data_vol:/var/lib/openvas/plugins
+      - notus_data_vol:/var/lib/notus
+      - ospd_openvas_socket_vol:/run/ospd
+      - redis_socket_vol:/run/redis/
+      - openvas_data_vol:/etc/openvas
+      - openvas_log_data_vol:/var/log/openvas
+    depends_on:
+      redis-server:
+        condition: service_started
+      gpg-data:
+        condition: service_completed_successfully
+      vulnerability-tests:
+        condition: service_completed_successfully
+      configure-openvas:
+        condition: service_completed_successfully
+    networks:
+      - watchtower-net
+
+  gvm-tools:
+    image: greenbone/gvm-tools
+    volumes:
+      - gvmd_socket_vol:/run/gvmd
+      - ospd_openvas_socket_vol:/run/ospd
+    depends_on:
+      - gvmd
+      - ospd-openvas
+    networks:
+      - watchtower-net
+
+  gsad:
+    image: greenbone/gsad:stable
+    restart: on-failure
+    ports:
+      - "9392:80"
+    volumes:
+      - gvmd_socket_vol:/run/gvmd
+    depends_on:
+      - gvmd
+    networks:
+      - watchtower-net
+
+volumes:
+  gpg_data_vol:
+  scap_data_vol:
+  cert_data_vol:
+  data_objects_vol:
+  gvmd_data_vol:
+  vt_data_vol:
+  notus_data_vol:
+  psql_data_vol:
+  psql_socket_vol:
+  gvmd_socket_vol:
+  ospd_openvas_socket_vol:
+  redis_socket_vol:
+  openvas_data_vol:
+  openvas_log_data_vol:

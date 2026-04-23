@@ -4,7 +4,8 @@ FROM rust:latest AS builder
 RUN apt-get update && apt-get install -y \
     pkg-config libssl-dev curl \
     && rustup target add wasm32-unknown-unknown \
-    && cargo install cargo-leptos
+    && curl --proto '=https' --tlsv1.2 -LsSf \
+        https://github.com/leptos-rs/cargo-leptos/releases/download/v0.3.6/cargo-leptos-installer.sh | sh
 
 WORKDIR /app
 COPY Cargo.toml Cargo.lock* rust-toolchain.toml ./
@@ -66,7 +67,7 @@ EXPOSE 67
 ENV LEPTOS_OUTPUT_NAME="watchtower"
 ENV LEPTOS_SITE_ROOT="target/site"
 ENV LEPTOS_SITE_PKG_DIR="pkg"
-ENV LEPTOS_SITE_ADDR="0.0.0.0:67"
+ENV LEPTOS_SITE_ADDR="0.0.0.0:66"
 ENV LEPTOS_RELOAD_PORT="3001"
 ENV DATABASE_URL="sqlite:///app/data/watchtower.db?mode=rwc"
 

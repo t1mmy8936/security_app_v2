@@ -53,6 +53,7 @@ fn parse_nikto_output(output: &str) -> Vec<ToolFinding> {
                     cwe_id: None,
                     cvss_score: None,
                     recommendation: Some("Review the finding and apply appropriate fixes".into()),
+                    issue_type: None,
                 });
             }
         }
@@ -71,6 +72,7 @@ fn parse_nikto_output(output: &str) -> Vec<ToolFinding> {
                     cwe_id: None,
                     cvss_score: None,
                     recommendation: None,
+                    issue_type: None,
                 });
             }
         }

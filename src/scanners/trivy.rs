@@ -102,6 +102,7 @@ fn parse_trivy_json(output: &str) -> Vec<ToolFinding> {
                             cvss_score: cvss,
                             recommendation: vuln["FixedVersion"].as_str()
                                 .map(|v| format!("Upgrade to version {}", v)),
+                            issue_type: Some("Vulnerability".into()),
                         });
                     }
                 }
@@ -130,6 +131,7 @@ fn parse_trivy_json(output: &str) -> Vec<ToolFinding> {
                             cwe_id: None,
                             cvss_score: None,
                             recommendation: mc["Resolution"].as_str().map(|s| s.to_string()),
+                            issue_type: Some("Code Smell".into()),
                         });
                     }
                 }
@@ -148,6 +150,7 @@ fn parse_trivy_json(output: &str) -> Vec<ToolFinding> {
                             cwe_id: Some("CWE-312".to_string()),
                             cvss_score: None,
                             recommendation: Some("Remove secret from source code and rotate credentials".to_string()),
+                            issue_type: Some("Vulnerability".into()),
                         });
                     }
                 }

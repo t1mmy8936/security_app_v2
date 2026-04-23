@@ -23,6 +23,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route("/settings", web::post().to(save_settings))
             .route("/settings/test-email", web::post().to(test_email))
             .route("/settings/test-sonarqube", web::post().to(test_sonarqube))
+            .route("/settings/test-openvas", web::post().to(test_openvas))
             .route("/settings/sonarqube-setup", web::post().to(sonarqube_auto_setup))
             .route("/sonarqube/profiles", web::get().to(sonarqube_quality_profiles))
             .route("/reports/{id}/generate", web::post().to(generate_report))
@@ -104,6 +105,7 @@ async fn get_scan(pool: web::Data<DbPool>, path: web::Path<i64>) -> HttpResponse
     }
 }
 
+#[allow(clippy::type_complexity)]
 async fn scan_status(pool: web::Data<DbPool>, path: web::Path<i64>) -> HttpResponse {
     let id = path.into_inner();
     let row: Option<(String, Option<String>, Option<i64>, Option<i64>, i64, i64, i64, i64, i64, i64, Option<i64>, Option<String>)> =
@@ -175,7 +177,7 @@ async fn scan_findings(pool: web::Data<DbPool>, path: web::Path<i64>) -> HttpRes
 }
 
 fn compute_score(critical: i64, high: i64, medium: i64, low: i64, _info: i64) -> i64 {
-    let deductions = critical * 15 + high * 8 + medium * 3 + low * 1;
+    let deductions = critical * 15 + high * 8 + medium * 3 + low;
     (100 - deductions).max(0)
 }
 
@@ -436,6 +438,7 @@ async fn list_tools() -> HttpResponse {
         description: t.description.into(),
         available: true,
         category: t.category.into(),
+        web_only: t.web_only,
     }).collect();
 
     HttpResponse::Ok().json(ApiResponse { success: true, message: None, data: Some(tools) })
@@ -459,6 +462,7 @@ async fn get_settings(pool: web::Data<DbPool>) -> HttpResponse {
         "email_from", "email_to",
         "sonarqube_url", "sonarqube_token", "sonarqube_project_key", "sonarqube_exclusions",
         "sonarqube_quality_profile",
+        "openvas_url", "openvas_username", "openvas_password",
     ];
 
     let mut settings = AllSettings {
@@ -476,6 +480,9 @@ async fn get_settings(pool: web::Data<DbPool>) -> HttpResponse {
         sonarqube_project_key: String::new(),
         sonarqube_exclusions: String::new(),
         sonarqube_quality_profile: String::new(),
+        openvas_url: String::new(),
+        openvas_username: String::new(),
+        openvas_password: String::new(),
     };
 
     for key in &keys {
@@ -495,6 +502,9 @@ async fn get_settings(pool: web::Data<DbPool>) -> HttpResponse {
             "sonarqube_project_key" => settings.sonarqube_project_key = val,
             "sonarqube_exclusions" => settings.sonarqube_exclusions = val,
             "sonarqube_quality_profile" => settings.sonarqube_quality_profile = val,
+            "openvas_url" => settings.openvas_url = val,
+            "openvas_username" => settings.openvas_username = val,
+            "openvas_password" => settings.openvas_password = val,
             _ => {}
         }
     }
@@ -530,7 +540,7 @@ async fn test_sonarqube(pool: web::Data<DbPool>) -> HttpResponse {
     }
 
     let client = reqwest::Client::new();
-    let resp = client.get(&format!("{}/api/system/status", url))
+    let resp = client.get(format!("{}/api/system/status", url))
         .bearer_auth(&token)
         .send()
         .await;
@@ -548,12 +558,53 @@ async fn test_sonarqube(pool: web::Data<DbPool>) -> HttpResponse {
     }
 }
 
+async fn test_openvas(pool: web::Data<DbPool>) -> HttpResponse {
+    let url = db::get_setting(pool.get_ref(), "openvas_url").await;
+    let username = db::get_setting(pool.get_ref(), "openvas_username").await;
+    let password = db::get_setting(pool.get_ref(), "openvas_password").await;
+
+    if url.is_empty() {
+        return HttpResponse::Ok().json(ApiResponse::<()> { success: false, message: Some("OpenVAS URL not configured".into()), data: None });
+    }
+    if username.is_empty() || password.is_empty() {
+        return HttpResponse::Ok().json(ApiResponse::<()> { success: false, message: Some("OpenVAS credentials not configured".into()), data: None });
+    }
+
+    let client = reqwest::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .build()
+        .unwrap_or_default();
+
+    let body = serde_json::json!({ "username": username, "password": password });
+    let resp = client
+        .post(format!("{}/api/v1/tokens", url))
+        .json(&body)
+        .send()
+        .await;
+
+    match resp {
+        Ok(r) if r.status().is_success() => {
+            // Log out immediately — just testing connectivity
+            if let Ok(json) = r.json::<serde_json::Value>().await {
+                if let Some(token) = json["data"]["token"].as_str() {
+                    let _ = client.delete(format!("{}/api/v1/tokens/{}", url, token)).send().await;
+                }
+            }
+            HttpResponse::Ok().json(ApiResponse::<()> { success: true, message: Some("OpenVAS connection OK".into()), data: None })
+        }
+        Ok(r) => {
+            HttpResponse::Ok().json(ApiResponse::<()> { success: false, message: Some(format!("OpenVAS returned {}", r.status())), data: None })
+        }
+        Err(e) => {
+            HttpResponse::Ok().json(ApiResponse::<()> { success: false, message: Some(format!("Cannot reach OpenVAS: {}", e)), data: None })
+        }
+    }
+}
+
 async fn sonarqube_auto_setup(pool: web::Data<DbPool>) -> HttpResponse {
     let url = db::get_setting(pool.get_ref(), "sonarqube_url").await;
     let url = if url.is_empty() { "http://sonarqube:9000".to_string() } else { url };
 
-    // This calls the same auto_provision from the scanner
-    // For simplicity, we just set the URL and let the scanner handle token generation
     db::set_setting(pool.get_ref(), "sonarqube_url", &url).await;
 
     HttpResponse::Ok().json(ApiResponse::<()> {
@@ -576,7 +627,7 @@ async fn sonarqube_quality_profiles(pool: web::Data<DbPool>) -> HttpResponse {
     }
 
     let client = reqwest::Client::new();
-    let resp = client.get(&format!("{}/api/qualityprofiles/search", url))
+    let resp = client.get(format!("{}/api/qualityprofiles/search", url))
         .bearer_auth(&token)
         .send()
         .await;
@@ -636,9 +687,14 @@ async fn generate_report(pool: web::Data<DbPool>, path: web::Path<i64>) -> HttpR
     }
 }
 
-async fn generate_pdf_report(pool: web::Data<DbPool>, path: web::Path<i64>) -> HttpResponse {
+async fn generate_pdf_report(
+    pool: web::Data<DbPool>,
+    path: web::Path<i64>,
+    opts: web::Json<PdfExportOptions>,
+) -> HttpResponse {
     let id = path.into_inner();
-    match crate::services::report::generate_pdf_report(pool.get_ref(), id).await {
+    let opts = opts.into_inner();
+    match crate::services::report::generate_pdf_report(pool.get_ref(), id, &opts).await {
         Ok(path) => HttpResponse::Ok().json(ApiResponse { success: true, message: Some("PDF report generated".into()), data: Some(path) }),
         Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()> { success: false, message: Some(e), data: None }),
     }
@@ -649,8 +705,8 @@ async fn download_pdf_report(pool: web::Data<DbPool>, path: web::Path<i64>) -> H
     let pdf_path = format!("/app/reports/scan_{}_report.pdf", id);
 
     // Auto-generate if PDF doesn't exist yet
-    if tokio::fs::try_exists(&pdf_path).await.unwrap_or(false) == false {
-        if let Err(e) = crate::services::report::generate_pdf_report(pool.get_ref(), id).await {
+    if !tokio::fs::try_exists(&pdf_path).await.unwrap_or(false) {
+        if let Err(e) = crate::services::report::generate_pdf_report(pool.get_ref(), id, &PdfExportOptions::default()).await {
             return HttpResponse::InternalServerError().json(ApiResponse::<()> {
                 success: false,
                 message: Some(format!("Failed to generate PDF: {}", e)),
@@ -849,7 +905,7 @@ async fn fetch_findings(pool: &DbPool, scan_job_id: i64) -> Vec<Finding> {
     sqlx::query_as::<_, Finding>(
         "SELECT id, scan_job_id, tool, severity, title, description, file_path, line_number,
                 cwe_id, cvss_score, raw_output, recommendation,
-                text_range_start, text_range_end, status, author, rule_url, data_flow
+                text_range_start, text_range_end, status, author, rule_url, data_flow, issue_type
          FROM findings WHERE scan_job_id = ?
          ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END"
     )

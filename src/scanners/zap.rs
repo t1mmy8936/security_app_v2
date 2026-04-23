@@ -83,6 +83,7 @@ pub async fn scan(pool: &DbPool, scan_job_id: i64, target: &str) -> Vec<ToolFind
                         cwe_id: cwe,
                         cvss_score: None,
                         recommendation: alert["solution"].as_str().map(|s| s.to_string()),
+                        issue_type: None,
                     });
                 }
             }

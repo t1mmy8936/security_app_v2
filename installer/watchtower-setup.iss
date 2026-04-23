@@ -4,7 +4,7 @@
 #define MyAppName "Watchtower"
 #define MyAppVersion "2.0"
 #define MyAppPublisher "Watchtower Security"
-#define MyAppURL "http://localhost:67"
+#define MyAppURL "http://localhost:66"
 
 [Setup]
 AppId={{B7F4E2A1-9C3D-4E5F-8A6B-1D2E3F4A5B6C}
@@ -54,7 +54,7 @@ Name: "{app}\reports"
 
 [Icons]
 Name: "{group}\Watchtower"; Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\execute-order-66.ps1"""; WorkingDir: "{app}"; Comment: "Execute Order 66"
-Name: "{group}\Watchtower Dashboard"; Filename: "http://localhost:67"; Comment: "Open Watchtower Dashboard"
+Name: "{group}\Watchtower Dashboard"; Filename: "http://localhost:66"; Comment: "Open Watchtower Dashboard"
 Name: "{group}\Uninstall Watchtower"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\Watchtower"; Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\execute-order-66.ps1"""; WorkingDir: "{app}"; Comment: "Execute Order 66"
 
@@ -170,7 +170,8 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  ProfilePath, ProfileContent, FuncBlock: String;
+  ProfilePath, FuncBlock: String;
+  ProfileContent: AnsiString;
 begin
   if CurStep = ssPostInstall then
   begin
@@ -192,7 +193,7 @@ begin
       if not LoadStringFromFile(ProfilePath, ProfileContent) then
         ProfileContent := '';
       if Pos('function execute', ProfileContent) = 0 then
-        SaveStringToFile(ProfilePath, #13#10 + FuncBlock, True);
+        SaveStringToFile(ProfilePath, Chr(13) + Chr(10) + FuncBlock, True);
     end
     else
     begin
@@ -204,7 +205,8 @@ end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
-  ProfilePath, ProfileContent: String;
+  ProfilePath: String;
+  ProfileContent: AnsiString;
   StartPos: Integer;
 begin
   if CurUninstallStep = usPostUninstall then

@@ -1,5 +1,6 @@
 use leptos::*;
 use crate::models::*;
+use crate::frontend::app::{RESTRICTED_TOOLS, RESTRICTED_PRESETS};
 
 #[component]
 pub fn ScanPage() -> impl IntoView {
@@ -10,6 +11,9 @@ pub fn ScanPage() -> impl IntoView {
     let (is_scanning, set_is_scanning) = create_signal(false);
     let (browse_path, set_browse_path) = create_signal(None::<String>);
     let (folder_search, set_folder_search) = create_signal(String::new());
+
+    // Read advanced mode from context — hides restricted tools when false
+    let advanced_mode = use_context::<ReadSignal<bool>>().unwrap_or_else(|| create_signal(false).0);
 
     let drives = create_resource(|| (), |_| async { fetch_drives().await });
     let presets = create_resource(|| (), |_| async { fetch_presets().await });
@@ -241,11 +245,22 @@ pub fn ScanPage() -> impl IntoView {
                         Ok(preset_list) => view! {
                             <div class="preset-grid">
                                 <For
-                                    each=move || preset_list.clone()
+                                    each=move || {
+                                        let adv = advanced_mode.get();
+                                        preset_list.iter()
+                                            .filter(|p| adv || !RESTRICTED_PRESETS.contains(&p.name.as_str()))
+                                            .cloned()
+                                            .collect::<Vec<_>>()
+                                    }
                                     key=|p| p.name.clone()
                                     children=move |preset| {
                                         let name = preset.name.clone();
                                         let name2 = preset.name.clone();
+                                        let adv = advanced_mode.get();
+                                        let visible_tools: Vec<_> = preset.tools.iter()
+                                            .filter(|t| adv || !RESTRICTED_TOOLS.contains(&t.as_str()))
+                                            .cloned()
+                                            .collect();
                                         view! {
                                             <div class=move || {
                                                 if scan_type.get() == name { "preset-card active" } else { "preset-card" }
@@ -254,8 +269,15 @@ pub fn ScanPage() -> impl IntoView {
                                                 <h4>{preset.display_name.clone()}</h4>
                                                 <p>{preset.description.clone()}</p>
                                                 <div class="preset-tools">
-                                                    {preset.tools.iter().map(|t| view! {
-                                                        <span class="tool-tag">{t.clone()}</span>
+                                                    {visible_tools.iter().map(|t| {
+                                                        let t_name = t.clone();
+                                                        let is_web = tool_is_web_only(&t_name);
+                                                        view! {
+                                                            <span class=move || {
+                                                                let ts = target_source.get();
+                                                                if (ts == "url") == is_web { "tool-tag" } else { "tool-tag tool-tag-skipped" }
+                                                            }>{t_name.clone()}</span>
+                                                        }
                                                     }).collect_view()}
                                                 </div>
                                             </div>
@@ -269,6 +291,23 @@ pub fn ScanPage() -> impl IntoView {
                 </Suspense>
             </div>
 
+            {move || {
+                let ts = target_source.get();
+                if ts == "url" {
+                    view! {
+                        <div class="compat-banner">
+                            "ℹ️ URL target: SAST/SCA tools (Bandit, SonarQube, Trivy, Dependency-Check) require source code and will be skipped."
+                        </div>
+                    }.into_view()
+                } else {
+                    view! {
+                        <div class="compat-banner">
+                            "ℹ️ Local/Code target: DAST/Network tools (ZAP, Nikto, SQLMap, Nmap, OpenVAS) require a URL and will be skipped."
+                        </div>
+                    }.into_view()
+                }
+            }}
+
             <div class="form-group">
                 <label>"Tools"</label>
                 <Suspense fallback=move || view! { <p>"Loading tools..."</p> }>
@@ -276,15 +315,29 @@ pub fn ScanPage() -> impl IntoView {
                         Ok(tool_list) => view! {
                             <div class="tools-checkbox-grid">
                                 <For
-                                    each=move || tool_list.clone()
+                                    each=move || {
+                                        let adv = advanced_mode.get();
+                                        tool_list.clone().into_iter()
+                                            .filter(move |t| adv || !RESTRICTED_TOOLS.contains(&t.name.as_str()))
+                                            .collect::<Vec<_>>()
+                                    }
                                     key=|t| t.name.clone()
                                     children=move |tool| {
                                         let name = tool.name.clone();
                                         let name2 = tool.name.clone();
+                                        let is_restricted = RESTRICTED_TOOLS.contains(&tool.name.as_str());
+                                        let web_only = tool.web_only;
+                                        let compat_hint = if web_only { "URL targets only" } else { "local/code targets only" };
                                         view! {
-                                            <label class="checkbox-label">
+                                            <label class=move || {
+                                                let ts = target_source.get();
+                                                let compat = (ts == "url") == web_only;
+                                                let base = if is_restricted { "checkbox-label restricted-tool" } else { "checkbox-label" };
+                                                if compat { base.to_string() } else { format!("{} tool-incompatible", base) }
+                                            }>
                                                 <input type="checkbox"
                                                     prop:checked=move || selected_tools.get().contains(&name)
+                                                    disabled=move || (target_source.get() == "url") != web_only
                                                     on:change=move |ev| {
                                                         let checked = event_target_checked(&ev);
                                                         set_selected_tools.update(|v| {
@@ -297,6 +350,11 @@ pub fn ScanPage() -> impl IntoView {
                                                     }/>
                                                 " " {tool.display_name.clone()}
                                                 <span class="tool-category">{format!(" ({})", tool.category)}</span>
+                                                {move || {
+                                                    let ts = target_source.get();
+                                                    let compat = (ts == "url") == web_only;
+                                                    if compat { None } else { Some(view! { <span class="tool-compat-note">{compat_hint}</span> }) }
+                                                }}
                                             </label>
                                         }
                                     }
@@ -311,10 +369,14 @@ pub fn ScanPage() -> impl IntoView {
             <button class="btn btn-primary btn-lg"
                 disabled=move || is_scanning.get() || target.get().is_empty()
                 on:click=move |_| start_scan.dispatch(())>
-                {move || if is_scanning.get() { "⏳ Starting scan..." } else { "🚀 Execute Order 66" }}
+                {move || if is_scanning.get() { "⏳ Starting scan..." } else if advanced_mode.get() { "🚀 Execute Order 66" } else { "🚀 Run Scan" }}
             </button>
         </div>
     }
+}
+
+fn tool_is_web_only(name: &str) -> bool {
+    matches!(name, "zap" | "nmap" | "nikto" | "sqlmap" | "openvas")
 }
 
 fn event_target_checked(ev: &leptos::ev::Event) -> bool {
@@ -371,10 +433,12 @@ async fn do_start_scan(req: StartScanRequest) -> Result<i64, String> {
             .ok_or("No scan_id returned".into())
     }
     #[cfg(not(feature = "hydrate"))]
-    { Err("SSR".into()) }
+    { let _ = req; Err("SSR".into()) }
 }
 
 async fn fetch_folders(path: Option<String>) -> Result<BrowseFoldersResponse, String> {
+    #[cfg(not(feature = "hydrate"))]
+    { let _ = path; }
     #[cfg(feature = "hydrate")]
     {
         let req = BrowseFoldersRequest { path };

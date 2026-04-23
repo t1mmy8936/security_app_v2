@@ -16,3 +16,5 @@ pub mod trivy;
 pub mod sonarqube;
 #[cfg(feature = "ssr")]
 pub mod dependency_check;
+#[cfg(feature = "ssr")]
+pub mod openvas;

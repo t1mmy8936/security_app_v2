@@ -54,6 +54,7 @@ fn parse_bandit_json(output: &str) -> Vec<ToolFinding> {
                     cvss_score: None,
                     recommendation: Some(format!("Confidence: {}. Review and fix the identified issue.",
                         r["issue_confidence"].as_str().unwrap_or("UNKNOWN"))),
+                    issue_type: None,
                 });
             }
         }

@@ -24,6 +24,7 @@ pub struct AzureBranch {
 pub struct AzureDevOpsClient {
     org: String,
     pat: String,
+    #[allow(dead_code)]
     project: String,
     client: reqwest::Client,
 }

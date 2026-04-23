@@ -3,7 +3,7 @@ services:
     build: .
     container_name: watchtower
     ports:
-      - "67:67"
+      - "66:66"
     volumes:
       - scan-data:/app/data
       - reports:/app/reports
@@ -12,7 +12,7 @@ services:
     environment:
       - DATABASE_URL=sqlite:///app/data/watchtower.db?mode=rwc
       - ZAP_URL=http://zap:8080
-      - LEPTOS_SITE_ADDR=0.0.0.0:67
+      - LEPTOS_SITE_ADDR=0.0.0.0:66
     depends_on:
       - zap
       - sonarqube

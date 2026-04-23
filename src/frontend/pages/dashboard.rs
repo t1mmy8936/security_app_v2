@@ -105,7 +105,7 @@ pub fn DashboardPage() -> impl IntoView {
                                                 key=|s| s.id
                                                 children=|scan| view! {
                                                     <tr class="clickable-row" on:click=move |_| {
-                                                        let _ = leptos_router::use_navigate()(&format!("/scans/{}", scan.id), Default::default());
+                                                        leptos_router::use_navigate()(&format!("/scans/{}", scan.id), Default::default());
                                                     }>
                                                         <td>{scan.id}</td>
                                                         <td><span class="badge badge-type">{scan.scan_type.clone()}</span></td>

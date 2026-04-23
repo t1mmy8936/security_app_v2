@@ -5,15 +5,26 @@
 $ErrorActionPreference = "Stop"
 
 Write-Host ""
-Write-Host "  ╔══════════════════════════════════════════════════════════╗" -ForegroundColor Red
-Write-Host "  ║                                                          ║" -ForegroundColor Red
-Write-Host "  ║   ⚔️  Watchtower — Execute Order 66                     ║" -ForegroundColor Red
-Write-Host "  ║        Rust Edition                                      ║" -ForegroundColor Red
-Write-Host "  ║                                                          ║" -ForegroundColor Red
-Write-Host "  ║   `"I find your lack of security disturbing.`"            ║" -ForegroundColor DarkRed
-Write-Host "  ║                                                          ║" -ForegroundColor Red
-Write-Host "  ╚══════════════════════════════════════════════════════════╝" -ForegroundColor Red
+Write-Host "  A long time ago, in a network far, far away...." -ForegroundColor DarkGray
 Write-Host ""
+Start-Sleep -Milliseconds 1200
+Write-Host "  ╔══════════════════════════════════════════════════════════╗" -ForegroundColor Yellow
+Write-Host "  ║                                                          ║" -ForegroundColor Yellow
+Write-Host "  ║        ░██████╗  ██████╗ █████╗ ███╗  ██╗               ║" -ForegroundColor Yellow
+Write-Host "  ║        ██╔════╝ ██╔════╝██╔══██╗████╗ ██║               ║" -ForegroundColor Yellow
+Write-Host "  ║        ╚█████╗  ██║     ███████║██╔██╗██║               ║" -ForegroundColor Yellow
+Write-Host "  ║         ╚═══██╗ ██║     ██╔══██║██║╚████║               ║" -ForegroundColor Yellow
+Write-Host "  ║        ██████╔╝ ╚██████╗██║  ██║██║ ╚███║               ║" -ForegroundColor Yellow
+Write-Host "  ║        ╚═════╝   ╚═════╝╚═╝  ╚═╝╚═╝  ╚══╝               ║" -ForegroundColor Yellow
+Write-Host "  ║                                                          ║" -ForegroundColor Yellow
+Write-Host "  ║              EXECUTE ORDER 66                           ║" -ForegroundColor Red
+Write-Host "  ║           ── INITIATING SECURITY SCAN ──                ║" -ForegroundColor DarkRed
+Write-Host "  ║                                                          ║" -ForegroundColor Yellow
+Write-Host "  ║   `"The Force is strong with this vulnerability.`"        ║" -ForegroundColor DarkYellow
+Write-Host "  ║                                                          ║" -ForegroundColor Yellow
+Write-Host "  ╚══════════════════════════════════════════════════════════╝" -ForegroundColor Yellow
+Write-Host ""
+Start-Sleep -Milliseconds 800
 
 # ── Find project directory ──
 $scriptDir = $PSScriptRoot
@@ -43,9 +54,9 @@ foreach ($p in $dockerPaths) {
 
 try {
     $null = docker info 2>&1
-    Write-Host "  ✅ Docker is running" -ForegroundColor Green
+    Write-Host "  ✅ Imperial fleet (Docker) is ready" -ForegroundColor Green
 } catch {
-    Write-Host "  [X] Docker is not running. Start Docker Desktop first." -ForegroundColor Red
+    Write-Host "  [X] The fleet is grounded. Start Docker Desktop first." -ForegroundColor Red
     exit 1
 }
 
@@ -54,9 +65,9 @@ if (-not (Test-Path ".env")) {
     $localProjects = "C:\Users\$env:USERNAME\source\repos"
     if (-not (Test-Path $localProjects)) { $localProjects = "C:\Projects" }
     "LOCAL_PROJECTS_PATH=$localProjects" | Out-File -FilePath ".env" -Encoding UTF8
-    Write-Host "  📝 Created .env with LOCAL_PROJECTS_PATH=$localProjects" -ForegroundColor Yellow
+    Write-Host "  📝 Holocron created: LOCAL_PROJECTS_PATH=$localProjects" -ForegroundColor Yellow
 } else {
-    Write-Host "  📝 .env exists" -ForegroundColor Green
+    Write-Host "  📝 Holocron found" -ForegroundColor Green
 }
 
 # ── Detect drives and generate docker-compose.override.yml ──
@@ -73,29 +84,31 @@ foreach ($drv in $drives) {
 $overrideContent = $overrideLines -join "`n"
 $overrideContent | Out-File -FilePath "docker-compose.override.yml" -Encoding UTF8 -Force
 $driveLetters = ($drives | ForEach-Object { $_.Name }) -join ", "
-Write-Host "  💾 Detected drives: $driveLetters" -ForegroundColor Cyan
+Write-Host "  💾 Scanning galaxy sectors: $driveLetters" -ForegroundColor Cyan
 
 # ── Build and launch ──
 Write-Host ""
-Write-Host "  🚀 Executing Order 66... Building containers..." -ForegroundColor Yellow
+Write-Host "  ⚡ The Death Star scans are commencing..." -ForegroundColor Yellow
+Write-Host "  🛸 Deploying rebel-hunting containers..." -ForegroundColor DarkYellow
 Write-Host ""
 
 docker compose up --build -d
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host ""
-    Write-Host "  ╔══════════════════════════════════════════════════════════╗" -ForegroundColor Green
-    Write-Host "  ║  ✅ Watchtower is online!                                ║" -ForegroundColor Green
-    Write-Host "  ║                                                          ║" -ForegroundColor Green
-    Write-Host "  ║  🌐 Dashboard:  http://localhost:67                      ║" -ForegroundColor Cyan
-    Write-Host "  ║  🔍 ZAP:        http://localhost:8081                    ║" -ForegroundColor Cyan
-    Write-Host "  ║  📊 SonarQube:  http://localhost:9091                    ║" -ForegroundColor Cyan
-    Write-Host "  ║                                                          ║" -ForegroundColor Green
-    Write-Host "  ║  Built with Rust 🦀 + Leptos + Actix-web                ║" -ForegroundColor DarkYellow
-    Write-Host "  ╚══════════════════════════════════════════════════════════╝" -ForegroundColor Green
+    Write-Host "  ╔══════════════════════════════════════════════════════════╗" -ForegroundColor Yellow
+    Write-Host "  ║  ⚡ ORDER 66 EXECUTED — SCAN GRID ONLINE                 ║" -ForegroundColor Yellow
+    Write-Host "  ║                                                          ║" -ForegroundColor Yellow
+    Write-Host "  ║  🌐 Command Bridge:  http://localhost:66                  ║" -ForegroundColor Cyan
+    Write-Host "  ║  🔍 Probe Droid:     http://localhost:8081                ║" -ForegroundColor Cyan
+    Write-Host "  ║  📊 Intel Station:   http://localhost:9091                ║" -ForegroundColor Cyan
+    Write-Host "  ║                                                          ║" -ForegroundColor Yellow
+    Write-Host "  ║  `"Your scan has been set in motion, my lord.`"          ║" -ForegroundColor DarkYellow
+    Write-Host "  ║                                                          ║" -ForegroundColor Yellow
+    Write-Host "  ╚══════════════════════════════════════════════════════════╝" -ForegroundColor Yellow
     Write-Host ""
 } else {
     Write-Host ""
-    Write-Host "  [X] Build failed. Check docker compose logs." -ForegroundColor Red
+    Write-Host "  [X] The scan has failed. Check docker compose logs, Lord Vader." -ForegroundColor Red
     Write-Host ""
 }

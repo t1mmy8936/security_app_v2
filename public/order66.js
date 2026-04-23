@@ -59,6 +59,7 @@
         active = true;
         document.body.classList.add('starwars-mode');
         localStorage.setItem('order66', 'active');
+        window.dispatchEvent(new CustomEvent('order66toggle', { detail: { active: true } }));
 
         // Show activation overlay
         if (!document.getElementById('sw-overlay')) {
@@ -96,6 +97,7 @@
         active = false;
         document.body.classList.remove('starwars-mode');
         localStorage.removeItem('order66');
+        window.dispatchEvent(new CustomEvent('order66toggle', { detail: { active: false } }));
         stopStarField();
         stopQuoteRotation();
         stopAmbientSounds();

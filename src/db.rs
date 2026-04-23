@@ -59,6 +59,7 @@ pub async fn init_db(database_url: &str) -> DbPool {
             author TEXT,
             rule_url TEXT,
             data_flow TEXT,
+            issue_type TEXT,
             FOREIGN KEY (scan_job_id) REFERENCES scan_jobs(id)
         )",
     )
@@ -106,6 +107,11 @@ pub async fn init_db(database_url: &str) -> DbPool {
     .execute(&pool)
     .await
     .expect("Failed to create settings table");
+
+    // Migration: add issue_type column if it doesn't exist yet (for existing DBs)
+    let _ = sqlx::query("ALTER TABLE findings ADD COLUMN issue_type TEXT")
+        .execute(&pool)
+        .await;
 
     pool
 }
